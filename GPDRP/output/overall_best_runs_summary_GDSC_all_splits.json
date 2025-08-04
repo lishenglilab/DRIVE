@@ -1,0 +1,7 @@
+[
+    {
+        "model_name": "GIN",
+        "dataset": "GDSC_mix",
+        "run_id": 3,
+        "best_epoch": 184,
+        "val_mse_scaled": 

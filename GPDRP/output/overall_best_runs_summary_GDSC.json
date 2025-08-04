@@ -1,0 +1,8 @@
+[
+    {
+        "model_name": "GINTransformer",
+        "dataset": "GDSC",
+        "run_id": 1,
+        "best_epoch": 197,
+        "val_rmse": 0.05411775369087776,
+        "val_mse": 
