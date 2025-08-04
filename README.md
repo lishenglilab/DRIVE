@@ -1,7 +1,7 @@
 # DRP
 test 
 
-BANDRP 缺失模型权重
+BANDRP 上传完全
 
 DeepAEG 上传完全
 
