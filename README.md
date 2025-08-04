@@ -7,7 +7,7 @@ DeepAEG 上传完全
 
 GADRP 上传完全
 
-DeepCDR 缺失模型权重
+DeepCDR 上传完全
 
 DeepTTC 上传完全
 
