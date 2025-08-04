@@ -19,6 +19,6 @@ GraphDRP 上传完全
 
 NERD 上传完全
 
-paccmann 缺失模型权重
+paccmann 上传完全
 
 Precily 缺失模型权重 缺失药物编码
