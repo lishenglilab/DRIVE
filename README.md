@@ -11,7 +11,7 @@ DeepCDR 上传完全
 
 DeepTTC 上传完全
 
-DIPK 缺失模型权重 缺失部分图pt 缺失部分原始文件
+DIPK 上传完全
 
 GPDRP 上传完全
 
