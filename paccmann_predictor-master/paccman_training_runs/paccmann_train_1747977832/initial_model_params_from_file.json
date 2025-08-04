@@ -1,0 +1,50 @@
+{
+    "drug_sensitivity_normalize": false,
+    "augment_smiles": true,
+    "smiles_start_stop_token": true,
+    "number_of_genes": 2128,
+    "smiles_padding_length": 250,
+    "stacked_dense_hidden_sizes": [
+        32
+    ],
+    "activation_fn": "relu",
+    "dropout": 0.2,
+    "batch_norm": true,
+    "filters": [
+        64,
+        64,
+        64
+    ],
+    "multiheads": [
+        4,
+        4,
+        4,
+        4
+    ],
+    "smiles_embedding_size": 16,
+    "kernel_sizes": [
+        [
+            3,
+            16
+        ],
+        [
+            5,
+            16
+        ],
+        [
+            11,
+            16
+        ]
+    ],
+    "smiles_attention_size": 32,
+    "embed_scale_grad": false,
+    "final_activation": true,
+    "gene_to_dense": false,
+    "batch_size": 256,
+    "lr": 0.005,
+    "optimizer": "adam",
+    "loss_fn": "mse",
+    "epochs": 100,
+    "save_model": 25,
+    "smiles_vocabulary_size": 87
+}

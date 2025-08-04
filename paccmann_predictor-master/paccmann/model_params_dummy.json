@@ -1,0 +1,29 @@
+{
+    "model_fn": "paccmann_v2",
+    "epochs": 3,
+    "batch_size": 2,
+    "lr": 0.001,
+    "optimizer": "Adam",
+    "add_start_and_stop": true,
+    "padding": true,
+    "smiles_padding_length": 60,
+    "drug_sensitivity_min_max": true,
+    "gene_expression_standardize": true,
+    "gene_expression_min_max": false,
+    "drug_sensitivity_processing_parameters": {},
+    "gene_expression_processing_parameters": {},
+    "save_every_n_epochs": 1,
+    "save_denormalized_periodic": true,
+    "stack_width": 10,
+    "num_stacks": 2,
+    "smiles_embedding_size": 32,
+    "fc_hidden_sizes": [
+        32,
+        16
+    ],
+    "dropout": 0.1,
+    "gene_embedding_size": 16,
+    "gene_attention_size": 32,
+    "final_activation": "sigmoid",
+    "num_workers": 0
+}

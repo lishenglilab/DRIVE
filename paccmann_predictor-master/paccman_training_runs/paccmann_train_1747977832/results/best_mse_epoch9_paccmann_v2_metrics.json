@@ -1,0 +1,13 @@
+{
+    "Epoch": 9,
+    "Train_Loss": 0.004495053685009765,
+    "Test_MSE": 0.011638119210009321,
+    "Test_RMSE": 0.10788011498885845,
+    "Test_Pearson": 0.6911823153495789,
+    "Test_Spearman": 0.5432791131087752,
+    "Test_R2": 0.47370583910751896,
+    "epoch_num_0_indexed_for_save_call": 8,
+    "epoch_num_1_indexed_for_filename": 9,
+    "Test_MSE_Original": 4.1634063720703125,
+    "Test_RMSE_Original": 2.040442705154419
+}
