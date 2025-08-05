@@ -1,6 +1,4 @@
 # DRP
-test(AI为矫正版本)
-
 # Integrated Drug Response Prediction Pipeline (DRP-NF)
 
 This repository contains a powerful and flexible Nextflow pipeline designed to run a suite of state-of-the-art drug response prediction (DRP) models. It allows users to run individual models or combine their predictions using an integrated Voter module to achieve a robust, ensembled result.
