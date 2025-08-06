@@ -19,7 +19,7 @@ import math
 import gc
 
 # ==============================================================================
-# SECTION 1: FEATURE GENERATION CODE (无修改)
+# SECTION 1: FEATURE GENERATION CODE
 # ==============================================================================
 RDKitAtom = Chem.rdchem.Atom
 RDKitBond = Chem.rdchem.Bond
@@ -116,7 +116,7 @@ class MolGraphConvFeaturizerForPredict(MolecularFeaturizer):
         return GraphData(node_features=node_features_final, edge_index=np.asarray([src, dest], dtype=int), edge_features=edge_features_final)
 
 # ============================================================================
-# SECTION 2: MODEL DEFINITION (无修改)
+# SECTION 2: MODEL DEFINITION
 # ============================================================================
 class GraphConvTest(tf.keras.layers.Layer):
     def __init__(self, units, units_edge, step, activation='tanh', use_bias=False, update_edge=True, kernel_initializer='glorot_uniform', bias_initializer='zeros', **kwargs):
@@ -269,7 +269,7 @@ class KerasMultiSourceGCNModel_new(object):
         return tf.keras.Model(inputs=[node_feature_in, lcq_adj_in, smiles_tokens_in, smiles_mask_in, copy_feat_in, mutation_feat_in, gexpr_feat_in, methy_feat_in], outputs=output)
 
 # ============================================================================
-# HELPER FUNCTIONS (语法修正)
+# HELPER FUNCTIONS
 # ============================================================================
 _dbpe_instance = None
 _words2idx_d_instance = None
@@ -407,7 +407,7 @@ def load_cell_lines_for_model(gene_info_filepath: str):
     return processed_cell_lines_dict
 
 # ============================================================================
-# <<<<<<<<<<<<<<<< 关键修改区域: Main Prediction Logic >>>>>>>>>>>>>>>>>>
+# Main Prediction Logic
 # ============================================================================
 def main_prediction_driver(config):
     print("Starting prediction process...")
@@ -448,29 +448,28 @@ def main_prediction_driver(config):
 
     # ############################ START OF MODIFICATION ############################
     
-    # 【关键修改】在加载模型后，立即设置其以“急切模式”运行
+    # Set the model to run eagerly, which can be more robust for complex inputs.
     loaded_model.run_eagerly = True
     print("\n[INFO] Model configured to run eagerly. This may be slightly slower but is more robust against shape-related errors.\n")
 
-    # 恢复您最初的、更简单的预测循环逻辑
     total_predictions_to_make = len(new_drug_smiles_df) * len(all_cell_line_ids)
     print(f"Total drug-cell pairs to predict: {total_predictions_to_make}")
 
     all_predictions = []
     
-    # 预先特征化所有药物，以避免在主循环中重复进行
+    ## Pre-featurize all drugs to avoid redundant computation in the main loop.
     featurized_drugs = {}
     for drug_row in tqdm(new_drug_smiles_df.itertuples(index=False), total=len(new_drug_smiles_df), desc="Pre-featurizing all drugs"):
         features = generate_drug_inputs_for_model_optimized(drug_row.smiles, drug_featurizer, config.Max_atoms, BPE_MAX_SEQUENCE_LENGTH)
         if features:
             featurized_drugs[drug_row.drug_id] = features
 
-    # 使用双层循环，逐对预测
+    # Use a nested loop to predict for each drug-cell pair.
     pbar = tqdm(total=len(featurized_drugs) * len(all_cell_line_ids), desc="Predicting drug-cell pairs")
     for drug_id, drug_features in featurized_drugs.items():
         for cell_id, cell_features in cell_line_inputs_map.items():
-            # 准备单次预测的输入数据
-            # 使用 np.expand_dims 为数据增加一个批次维度 (batch_size=1)
+            # Prepare input data for a single prediction.
+            # Add a batch dimension (batch_size=1) using np.expand_dims.
             model_inputs = [
                 np.expand_dims(drug_features[0], axis=0), # node_features
                 np.expand_dims(drug_features[1], axis=0), # adj_matrix
@@ -483,7 +482,6 @@ def main_prediction_driver(config):
             ]
             
             try:
-                # 因为是急切模式，所以 batch_size 参数会被忽略，但为了代码清晰，我们写上
                 prediction = loaded_model.predict(model_inputs, batch_size=1, verbose=0)
                 pred_val = prediction[0, 0]
                 all_predictions.append([drug_id, cell_id, pred_val])
@@ -494,7 +492,7 @@ def main_prediction_driver(config):
     
     pbar.close()
 
-    # 保存结果
+    # Save results.
     if all_predictions:
         results_df = pd.DataFrame(all_predictions, columns=['Drug_ID', 'Cell_Line_ID', 'Predicted_LN_IC50'])
         try:
