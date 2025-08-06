@@ -8,31 +8,33 @@ import re
 from tqdm import tqdm
 
 # ==============================================================================
-# --- 从 wordextract.py 和 cmethods.py 导入/定义的SMILES处理函数 ---
-# (这些函数直接来自“预测新药”的代码，保持不变)
+# --- SMILES Processing Functions from wordextract.py and cmethods.py ---
+# (These functions are directly from the "predict new drug" script and remain unchanged)
 # ==============================================================================
 _WORDEXTRACT_LETTERS = ["D", "E", "J", "R", "L", "M", "T", "Z", "X", "d", "e", "j", "r", "m", "t", "z", "x"]
 _WORDEXTRACT_ELEMENTS = None
 
 
 def _load_elements_once(elements_file_path="../mydata/utils/elements.txt"):
+    """Loads the list of chemical elements once and caches it."""
     global _WORDEXTRACT_ELEMENTS
     if _WORDEXTRACT_ELEMENTS is None:
         try:
             with open(elements_file_path) as f:
                 _WORDEXTRACT_ELEMENTS = f.read().splitlines()
             if not _WORDEXTRACT_ELEMENTS:
-                print(f"警告：从 {elements_file_path} 加载的元素列表为空。")
+                print(f"Warning: The element list loaded from {elements_file_path} is empty.")
         except FileNotFoundError:
-            print(f"错误：未找到元素文件 '{elements_file_path}'。SMILES修改功能可能受影响。")
+            print(f"Error: Element file '{elements_file_path}' not found. SMILES modification functionality may be affected.")
             _WORDEXTRACT_ELEMENTS = []
         except Exception as e:
-            print(f"加载元素文件 '{elements_file_path}' 时发生错误: {e}")
+            print(f"An error occurred while loading the element file '{elements_file_path}': {e}")
             _WORDEXTRACT_ELEMENTS = []
     return _WORDEXTRACT_ELEMENTS
 
 
 def _modify_smiles_internal(smiles_str, elements_list, letters_list):
+    """Internal function to replace chemical elements in a SMILES string with temporary letters."""
     replacements = {}
     current_smiles = str(smiles_str)
     matched_count = 0
@@ -50,6 +52,7 @@ def _modify_smiles_internal(smiles_str, elements_list, letters_list):
 
 
 def _contains_from_list_internal(smi_text, check_list):
+    """Checks if any item from a list is present in a string."""
     for item in check_list:
         if item in smi_text:
             return True
@@ -57,6 +60,7 @@ def _contains_from_list_internal(smi_text, check_list):
 
 
 def _create_lingos_internal(smiles_str, q_val, elements_list, letters_list):
+    """Internal function to create LINGOs (substrings) from a SMILES string."""
     lingo_list_internal = []
     current_smiles = str(smiles_str)
     if not current_smiles:
@@ -86,6 +90,7 @@ def _create_lingos_internal(smiles_str, q_val, elements_list, letters_list):
 
 
 def _vector_add_internal(lingo_embeddings, lingo_list_from_smiles):
+    """Internal function to sum the embedding vectors of LINGOs."""
     if not lingo_embeddings:
         return []
     first_key = next(iter(lingo_embeddings), None)
@@ -104,6 +109,7 @@ def _vector_add_internal(lingo_embeddings, lingo_list_from_smiles):
 
 
 def _vector_add_avg_internal(lingo_embeddings, lingo_list_from_smiles):
+    """Calculates the average embedding vector for a list of LINGOs."""
     sum_vec = _vector_add_internal(lingo_embeddings, lingo_list_from_smiles)
     num_lingos = len(lingo_list_from_smiles)
     if num_lingos == 0:
@@ -119,13 +125,13 @@ def _vector_add_avg_internal(lingo_embeddings, lingo_list_from_smiles):
 
 
 # ==============================================================================
-# --- 主要脚本常量和函数 ---
+# --- Main Script Constants and Functions ---
 # ==============================================================================
 N_DRUG_FEATURES = 100
 N_CELL_LINE_FEATURES = 1329
 DRUG_EMBEDDING_FILE_PATH = '../mydata/utils/drug.pubchem.canon.l8.ws20.txt'
 ELEMENTS_FILE_PATH = '../mydata/utils/elements.txt'
-# 此文件现在用作获取标准特征列名的“模板”
+# This file is now used as a "template" to get the standard feature column names
 CANONICAL_CELL_FEATURES_TEMPLATE_PATH = '../mydata/mycell_gsva2.csv'
 
 _DRUG_EMBEDDINGS_INDEX = None
@@ -134,9 +140,10 @@ _CANONICAL_CELL_FEATURE_NAMES = None
 
 
 def _load_drug_embeddings_once(embedding_file_path):
+    """Loads the drug SMILES word embeddings once and caches them."""
     global _DRUG_EMBEDDINGS_INDEX, _DRUG_EMBEDDING_VSIZE
     if _DRUG_EMBEDDINGS_INDEX is None:
-        print(f"正在加载药物SMILES词嵌入文件: {embedding_file_path} ...")
+        print(f"Loading drug SMILES word embedding file: {embedding_file_path} ...")
         embeddings_index = {}
         vsize = 0
         try:
@@ -155,7 +162,7 @@ def _load_drug_embeddings_once(embedding_file_path):
                 except StopIteration:
                     pass
 
-                for line in tqdm(f, total=total_lines, desc="  加载词嵌入", unit=" vecs"):
+                for line in tqdm(f, total=total_lines, desc="  Loading word embeddings", unit=" vecs"):
                     values = line.split()
                     if not values: continue
                     word = values[0]
@@ -169,20 +176,21 @@ def _load_drug_embeddings_once(embedding_file_path):
             _DRUG_EMBEDDINGS_INDEX = embeddings_index
             _DRUG_EMBEDDING_VSIZE = vsize
             if not _DRUG_EMBEDDINGS_INDEX:
-                raise SystemExit(f"错误：未能从 {embedding_file_path} 加载任何有效的词嵌入。")
+                raise SystemExit(f"Error: Failed to load any valid word embeddings from {embedding_file_path}.")
             if _DRUG_EMBEDDING_VSIZE != N_DRUG_FEATURES:
                 print(
-                    f"严重警告：从嵌入文件加载的向量维度 ({_DRUG_EMBEDDING_VSIZE}) 与预期的 N_DRUG_FEATURES ({N_DRUG_FEATURES}) 不匹配。")
+                    f"CRITICAL WARNING: The vector dimension loaded from the embedding file ({_DRUG_EMBEDDING_VSIZE}) does not match the expected N_DRUG_FEATURES ({N_DRUG_FEATURES}).")
             print(
-                f"药物SMILES词嵌入加载完成。有效词汇量: {len(_DRUG_EMBEDDINGS_INDEX)}, 实际向量维度: {_DRUG_EMBEDDING_VSIZE}")
+                f"Drug SMILES word embeddings loaded. Effective vocabulary size: {len(_DRUG_EMBEDDINGS_INDEX)}, actual vector dimension: {_DRUG_EMBEDDING_VSIZE}")
         except FileNotFoundError:
-            raise SystemExit(f"错误：未找到药物SMILES词嵌入文件 '{embedding_file_path}'。")
+            raise SystemExit(f"Error: Drug SMILES word embedding file not found at '{embedding_file_path}'.")
         except Exception as e:
-            raise SystemExit(f"加载药物SMILES词嵌入文件时发生错误: {e}")
+            raise SystemExit(f"An error occurred while loading the drug SMILES word embedding file: {e}")
     return _DRUG_EMBEDDINGS_INDEX, _DRUG_EMBEDDING_VSIZE
 
 
 def generate_drug_features_from_smiles(smiles_str: str, q_val: int = 8) -> np.ndarray:
+    """Generates a drug feature vector from a SMILES string using the LINGO method."""
     global _WORDEXTRACT_ELEMENTS, _WORDEXTRACT_LETTERS
     elements = _load_elements_once(ELEMENTS_FILE_PATH)
     embeddings, vec_size = _load_drug_embeddings_once(DRUG_EMBEDDING_FILE_PATH)
@@ -203,56 +211,56 @@ def generate_drug_features_from_smiles(smiles_str: str, q_val: int = 8) -> np.nd
 
 
 def _load_canonical_cell_feature_names_once(template_file_path: str):
-    """从模板文件加载一次标准的细胞系特征列名。"""
+    """Loads the canonical cell line feature column names once from a template file."""
     global _CANONICAL_CELL_FEATURE_NAMES
     if _CANONICAL_CELL_FEATURE_NAMES is None:
-        print(f"正在从模板文件加载标准的细胞系特征名称: {template_file_path}")
+        print(f"Loading canonical cell line feature names from template: {template_file_path}")
         try:
-            # 只需读取列名，不需要数据
+            # Only need to read the column names, not the data
             df_template = pd.read_csv(template_file_path, index_col=0, nrows=0)
             _CANONICAL_CELL_FEATURE_NAMES = df_template.columns.tolist()
 
             if not _CANONICAL_CELL_FEATURE_NAMES:
-                raise SystemExit(f"错误：从模板文件'{template_file_path}'中未能加载任何特征名称。")
+                raise SystemExit(f"Error: Failed to load any feature names from template file '{template_file_path}'.")
             if len(_CANONICAL_CELL_FEATURE_NAMES) != N_CELL_LINE_FEATURES:
                 raise SystemExit(
-                    f"错误：模板文件的特征数量 ({len(_CANONICAL_CELL_FEATURE_NAMES)}) 与预设值 N_CELL_LINE_FEATURES ({N_CELL_LINE_FEATURES}) 不匹配。")
-            print(f"成功加载 {len(_CANONICAL_CELL_FEATURE_NAMES)} 个标准的细胞系特征名称。")
+                    f"Error: The number of features in the template file ({len(_CANONICAL_CELL_FEATURE_NAMES)}) does not match the preset N_CELL_LINE_FEATURES ({N_CELL_LINE_FEATURES}).")
+            print(f"Successfully loaded {len(_CANONICAL_CELL_FEATURE_NAMES)} canonical cell line feature names.")
         except FileNotFoundError:
-            raise SystemExit(f"错误：未找到细胞系特征模板文件 '{template_file_path}'。")
+            raise SystemExit(f"Error: Cell line feature template file not found at '{template_file_path}'.")
         except Exception as e:
-            raise SystemExit(f"读取细胞系特征模板文件时发生错误: {e}")
+            raise SystemExit(f"An error occurred while reading the cell line feature template file: {e}")
     return _CANONICAL_CELL_FEATURE_NAMES
 
 
-# (此函数来自“预测新细胞系”的代码，用于对齐输入的GSVA数据)
+# (This function comes from the "predict new cell line" script and is used to align input GSVA data)
 def align_gsva_data(new_gsva_df: pd.DataFrame, training_feature_names: list) -> pd.DataFrame:
-    """将新的GSVA数据与训练时使用的特征列对齐。"""
-    print("开始对齐输入的GSVA数据...")
-    # 创建一个以训练特征为列、新细胞系为行，并用0填充的DataFrame作为模板
+    """Aligns new GSVA data with the feature columns used during training."""
+    print("Starting alignment of input GSVA data...")
+    # Create a template DataFrame with training features as columns, new cell lines as rows, filled with 0
     aligned_df = pd.DataFrame(0.0, index=new_gsva_df.index, columns=training_feature_names)
 
-    # 找出新旧数据中共有的列
+    # Find common columns between the new and old data
     common_cols = list(set(new_gsva_df.columns) & set(training_feature_names))
 
     if common_cols:
-        print(f"  - 找到 {len(common_cols)} 个共有的特征列。")
+        print(f"  - Found {len(common_cols)} common feature columns.")
         aligned_df[common_cols] = new_gsva_df[common_cols]
     else:
-        print("  - 警告: 输入的GSVA数据与训练特征没有共同列。所有细胞系特征将为0。")
+        print("  - Warning: Input GSVA data has no common columns with training features. All cell line features will be zero.")
 
     missing_cols_count = len(training_feature_names) - len(common_cols)
     if missing_cols_count > 0:
-        print(f"  - {missing_cols_count} 个在训练中使用的特征在输入文件中缺失，将用0填充。")
+        print(f"  - {missing_cols_count} features used in training were missing from the input file and will be filled with 0.")
 
     return aligned_df
 
 
-# (此函数在两个脚本中都存在，逻辑一致，确保拼接顺序正确)
+# (This function exists in both scripts with consistent logic, ensuring the correct concatenation order)
 def combine_features(cell_feats: np.ndarray, drug_feats: np.ndarray) -> np.ndarray:
     """
-    严格按照 [细胞系特征, 药物特征] 的顺序拼接。
-    这是模型训练时使用的顺序。
+    Strictly concatenates features in the order [cell line features, drug features].
+    This is the order used during model training.
     """
     if drug_feats is None or cell_feats is None: return None
     combined = np.concatenate((cell_feats, drug_feats))
@@ -262,32 +270,34 @@ def combine_features(cell_feats: np.ndarray, drug_feats: np.ndarray) -> np.ndarr
 
 
 def load_keras_models(models_base_path: str, num_models: int = 5) -> list:
+    """Loads an ensemble of Keras models from a directory."""
     loaded_models = []
-    print(f"正在从 '{models_base_path}' 加载 {num_models} 个模型...")
-    for i in tqdm(range(1, num_models + 1), desc="加载模型", unit="model"):
+    print(f"Loading {num_models} models from '{models_base_path}'...")
+    for i in tqdm(range(1, num_models + 1), desc="Loading models", unit="model"):
         model_filename = f'precily_cv_{i}.hdf5'
         model_path = os.path.join(models_base_path, model_filename)
         try:
             model = tf.keras.models.load_model(model_path, compile=False)
             loaded_models.append(model)
         except Exception as e:
-            print(f"加载模型 {model_path} 时出错: {e}")
+            print(f"Error loading model {model_path}: {e}")
     if not loaded_models:
-        print("关键错误：没有模型被加载。")
+        print("Critical Error: No models were loaded.")
     elif len(loaded_models) != num_models:
-        print(f"警告：期望加载 {num_models} 个模型, 但实际加载了 {len(loaded_models)} 个。")
+        print(f"Warning: Expected to load {num_models} models, but actually loaded {len(loaded_models)}.")
     return loaded_models
 
 
 def predict_with_ensemble(models_list: list, features_array: np.ndarray) -> tuple:
+    """Performs prediction using an ensemble of models and returns the mean and individual predictions."""
     if not models_list or features_array.shape[0] == 0: return np.array([]), np.array([])
     all_predictions_list = []
-    for model in tqdm(models_list, desc="集成预测", unit="model"):
+    for model in tqdm(models_list, desc="Ensemble Prediction", unit="model"):
         try:
             preds = model.predict(features_array, verbose=0)
             all_predictions_list.append(preds.flatten())
         except Exception as e:
-            print(f"模型预测时出错: {e}")
+            print(f"An error occurred during model prediction: {e}")
             all_predictions_list.append(np.full(features_array.shape[0], np.nan))
     if not all_predictions_list: return np.array([]), np.array([])
     individual_predictions_array = np.array(all_predictions_list)
@@ -296,39 +306,40 @@ def predict_with_ensemble(models_list: list, features_array: np.ndarray) -> tupl
 
 
 def main():
+    """Main function to drive the prediction workflow."""
     global ELEMENTS_FILE_PATH, DRUG_EMBEDDING_FILE_PATH, CANONICAL_CELL_FEATURES_TEMPLATE_PATH
     global _WORDEXTRACT_ELEMENTS, _DRUG_EMBEDDINGS_INDEX, _DRUG_EMBEDDING_VSIZE, _CANONICAL_CELL_FEATURE_NAMES
 
-    parser = argparse.ArgumentParser(description="为新的药物和新的细胞系预测所有组合的IC50值。",
+    parser = argparse.ArgumentParser(description="Predict IC50 values for all combinations of new drugs and new cell lines.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    # --- 合并后的输入参数 ---
+    # --- Unified Input Arguments ---
     parser.add_argument('--input_drugs_file', type=str, default='../depmap/drug_results.csv',
-                        help='【必需】输入新药CSV文件的路径。格式: 无表头, 第1列=药物名, 第2列=SMILES。')
+                        help='[Required] Path to the input CSV file for new drugs. Format: no header, col1=drug_name, col2=SMILES.')
     parser.add_argument('--input_cell_lines_file', type=str, default='../depmap/gsva_depmap.csv',
-                        help='【必需】输入新细胞系GSVA数据的CSV文件路径。格式: 第1列为细胞系名称索引, 后续列为GSVA通路得分。')
+                        help='[Required] Path to the input CSV file for new cell line GSVA data. Format: col1=cell_line_name_index, subsequent cols=GSVA pathway scores.')
     parser.add_argument('--models_dir', type=str, default='.',
-                        help="存储训练好的.hdf5模型文件的目录。")
+                        help="Directory where the trained .hdf5 model files are stored.")
     parser.add_argument('--output_file', type=str, default='Precily.csv',
-                        help='保存预测结果的CSV文件路径。')
+                        help='Path to save the prediction results CSV file.')
     parser.add_argument('--num_models', type=int, default=5,
-                        help='要加载和集成的交叉验证模型的数量。')
+                        help='Number of cross-validation models to load and ensemble.')
     parser.add_argument('--lingo_q', type=int, default=8,
-                        help='LINGO算法中的q参数 (SMILES子串长度)。')
-    # --- 可选的依赖文件路径 ---
+                        help='The q parameter (SMILES substring length) for the LINGO algorithm.')
+    # --- Optional Dependency File Paths ---
     parser.add_argument('--elements_file', type=str, default=None,
-                        help=f"自定义元素列表文件路径 (默认: '{ELEMENTS_FILE_PATH}')。")
+                        help=f"Custom element list file path (default: '{ELEMENTS_FILE_PATH}').")
     parser.add_argument('--drug_embedding_file', type=str, default=None,
-                        help=f"药物SMILES词嵌入文件路径 (默认: '{DRUG_EMBEDDING_FILE_PATH}')。")
+                        help=f"Drug SMILES word embedding file path (default: '{DRUG_EMBEDDING_FILE_PATH}').")
     parser.add_argument('--cell_features_template_file', type=str, default=None,
-                        help=f"细胞系GSVA特征模板文件路径 (默认: '{CANONICAL_CELL_FEATURES_TEMPLATE_PATH}')。")
+                        help=f"Cell line GSVA feature template file path (default: '{CANONICAL_CELL_FEATURES_TEMPLATE_PATH}').")
     args = parser.parse_args()
 
-    # --- 确定最终使用的文件路径 ---
+    # --- Determine final file paths to use ---
     _current_elements_file = args.elements_file if args.elements_file is not None else ELEMENTS_FILE_PATH
     _current_drug_embedding_file = args.drug_embedding_file if args.drug_embedding_file is not None else DRUG_EMBEDDING_FILE_PATH
     _current_cell_template_file = args.cell_features_template_file if args.cell_features_template_file is not None else CANONICAL_CELL_FEATURES_TEMPLATE_PATH
 
-    # --- 更新全局路径变量 (如果被命令行覆盖) ---
+    # --- Update global path variables (if overridden by command line) ---
     if _current_elements_file != ELEMENTS_FILE_PATH:
         ELEMENTS_FILE_PATH = _current_elements_file
         _WORDEXTRACT_ELEMENTS = None
@@ -341,60 +352,60 @@ def main():
         _CANONICAL_CELL_FEATURE_NAMES = None
 
     print("\n" + "=" * 80)
-    print("预测脚本配置:")
-    print(f"1. 药物特征维度 (N_DRUG_FEATURES): {N_DRUG_FEATURES}")
-    print(f"2. 细胞系特征维度 (N_CELL_LINE_FEATURES): {N_CELL_LINE_FEATURES}")
-    print(f"3. 药物SMILES词嵌入文件: '{DRUG_EMBEDDING_FILE_PATH}'")
-    print(f"4. 细胞系特征模板文件: '{CANONICAL_CELL_FEATURES_TEMPLATE_PATH}'")
-    print(f"5. 元素列表文件: '{ELEMENTS_FILE_PATH}'")
-    print(f"6. 特征拼接顺序: [细胞系特征, 药物特征]")
+    print("Prediction Script Configuration:")
+    print(f"1. Drug Feature Dimension (N_DRUG_FEATURES): {N_DRUG_FEATURES}")
+    print(f"2. Cell Line Feature Dimension (N_CELL_LINE_FEATURES): {N_CELL_LINE_FEATURES}")
+    print(f"3. Drug SMILES Word Embedding File: '{DRUG_EMBEDDING_FILE_PATH}'")
+    print(f"4. Cell Line Feature Template File: '{CANONICAL_CELL_FEATURES_TEMPLATE_PATH}'")
+    print(f"5. Element List File: '{ELEMENTS_FILE_PATH}'")
+    print(f"6. Feature Concatenation Order: [Cell Line Features, Drug Features]")
     print("=" * 80 + "\n")
 
-    # --- 1. 加载所有必要的模型和数据 ---
+    # --- 1. Load all necessary models and data ---
     _load_elements_once(ELEMENTS_FILE_PATH)
     _load_drug_embeddings_once(DRUG_EMBEDDING_FILE_PATH)
     canonical_cell_feature_names = _load_canonical_cell_feature_names_once(CANONICAL_CELL_FEATURES_TEMPLATE_PATH)
     models = load_keras_models(args.models_dir, args.num_models)
 
     if not models:
-        raise SystemExit("没有模型被加载。无法进行预测。程序退出。")
+        raise SystemExit("No models were loaded. Cannot proceed with prediction. Exiting.")
 
-    # --- 2. 加载和处理输入的药物和细胞系数据 ---
+    # --- 2. Load and process input drug and cell line data ---
     try:
         new_drugs_df = pd.read_csv(args.input_drugs_file, header=None, names=['drug_name', 'smiles_string'])
-        if new_drugs_df.empty: raise SystemExit(f"输入的药物文件 '{args.input_drugs_file}' 为空。")
-        print(f"成功从 '{args.input_drugs_file}' 加载 {len(new_drugs_df)} 个新药。")
+        if new_drugs_df.empty: raise SystemExit(f"The input drug file '{args.input_drugs_file}' is empty.")
+        print(f"Successfully loaded {len(new_drugs_df)} new drugs from '{args.input_drugs_file}'.")
     except FileNotFoundError:
-        raise SystemExit(f"错误：未找到输入的药物文件 '{args.input_drugs_file}'。")
+        raise SystemExit(f"Error: Input drug file not found at '{args.input_drugs_file}'.")
     except Exception as e:
-        raise SystemExit(f"读取药物文件 '{args.input_drugs_file}' 时发生错误: {e}。")
+        raise SystemExit(f"An error occurred while reading the drug file '{args.input_drugs_file}': {e}.")
 
     try:
         new_gsva_df = pd.read_csv(args.input_cell_lines_file, index_col=0)
-        if new_gsva_df.empty: raise SystemExit(f"输入的细胞系文件 '{args.input_cell_lines_file}' 为空。")
-        print(f"成功从 '{args.input_cell_lines_file}' 加载 {len(new_gsva_df)} 个新细胞系。")
+        if new_gsva_df.empty: raise SystemExit(f"The input cell line file '{args.input_cell_lines_file}' is empty.")
+        print(f"Successfully loaded {len(new_gsva_df)} new cell lines from '{args.input_cell_lines_file}'.")
         aligned_cell_features_df = align_gsva_data(new_gsva_df, canonical_cell_feature_names)
     except FileNotFoundError:
-        raise SystemExit(f"错误: 找不到输入的细胞系文件 '{args.input_cell_lines_file}'。")
+        raise SystemExit(f"Error: Input cell line file not found at '{args.input_cell_lines_file}'.")
     except Exception as e:
-        raise SystemExit(f"读取或处理新细胞系文件时出错: {e}")
+        raise SystemExit(f"An error occurred while reading or processing the new cell line file: {e}")
 
-    # --- 3. 为所有 (新药, 新细胞系) 组合生成特征向量 ---
+    # --- 3. Generate feature vectors for all (new drug, new cell line) combinations ---
     feature_vectors_for_prediction = []
     prediction_identifiers = []
 
-    print("\n正在为所有药物-细胞系组合生成特征...")
-    # 预先计算所有药物的特征，避免在内层循环中重复计算
+    print("\nGenerating feature vectors for all drug-cell line combinations...")
+    # Pre-calculate features for all drugs to avoid redundant computations in the inner loop
     drug_feature_cache = {}
-    for _, drug_row in tqdm(new_drugs_df.iterrows(), total=len(new_drugs_df), desc="计算药物特征"):
+    for _, drug_row in tqdm(new_drugs_df.iterrows(), total=len(new_drugs_df), desc="Calculating drug features"):
         drug_feature_cache[drug_row['drug_name']] = {
             'features': generate_drug_features_from_smiles(drug_row['smiles_string'], q_val=args.lingo_q),
             'smiles': drug_row['smiles_string']
         }
 
-    # 遍历所有细胞系和预计算的药物特征，生成组合
+    # Iterate through all cell lines and pre-calculated drug features to create combinations
     for cell_line_name, cell_series in tqdm(aligned_cell_features_df.iterrows(), total=len(aligned_cell_features_df),
-                                            desc="组合特征"):
+                                            desc="Combining features"):
         cell_features_np = cell_series.values
         for drug_name, drug_data in drug_feature_cache.items():
             drug_features_np = drug_data['features']
@@ -410,24 +421,24 @@ def main():
                 })
 
     if not feature_vectors_for_prediction:
-        raise SystemExit("没有生成任何有效的特征向量用于预测。请检查输入文件。")
+        raise SystemExit("No valid feature vectors were generated for prediction. Please check the input files.")
 
-    # --- 4. 执行批量预测 ---
+    # --- 4. Perform batch prediction ---
     X_to_predict_combined = np.array(feature_vectors_for_prediction)
-    print(f"\n已生成 {X_to_predict_combined.shape[0]} 个特征向量，开始进行集成预测...")
+    print(f"\nGenerated {X_to_predict_combined.shape[0]} feature vectors, starting ensemble prediction...")
     mean_predictions, individual_predictions = predict_with_ensemble(models, X_to_predict_combined)
 
-    # --- 5. 整理并保存结果 ---
+    # --- 5. Organize and save results ---
     results_list = []
-    print("\n正在整理预测结果...")
-    for i, identifier in enumerate(tqdm(prediction_identifiers, desc="格式化结果")):
+    print("\nOrganizing prediction results...")
+    for i, identifier in enumerate(tqdm(prediction_identifiers, desc="Formatting results")):
         row_data = {
             'drug_name': identifier['drug_name'],
             'smiles': identifier['smiles'],
             'cell_line_name': identifier['cell_line_name'],
             'predicted_ic50_mean': mean_predictions[i] if mean_predictions.size > i else np.nan
         }
-        # 添加每个模型的单独预测值
+        # Add individual predictions for each model
         for model_idx in range(individual_predictions.shape[0]):
             row_data[f'predicted_ic50_model_{model_idx + 1}'] = individual_predictions[
                 model_idx, i] if individual_predictions.size > (
@@ -438,13 +449,13 @@ def main():
 
     try:
         results_df.to_csv(args.output_file, index=False)
-        print(f"\n预测结果已成功保存至: {args.output_file}")
+        print(f"\nPrediction results successfully saved to: {args.output_file}")
     except Exception as e:
-        print(f"\n错误: 保存预测结果至 '{args.output_file}' 时发生: {e}")
+        print(f"\nError: Failed to save prediction results to '{args.output_file}': {e}")
 
 
 if __name__ == '__main__':
-    # 设置TensorFlow线程，可能有助于提高在某些CPU环境下的性能和稳定性
+    # Set TensorFlow threads, which may improve performance and stability in some CPU environments
     tf.config.threading.set_inter_op_parallelism_threads(1)
     tf.config.threading.set_intra_op_parallelism_threads(1)
     main()
