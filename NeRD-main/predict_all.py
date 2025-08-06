@@ -12,11 +12,12 @@ import csv
 import json
 import itertools
 from tqdm import tqdm
-import argparse # 导入 argparse
+import argparse
 
-# --- Autoencoder 定义 (保持不变) ---
+
 class AutoEncoder(nn.Module):
-    # ... [此处省略AutoEncoder的完整代码，保持原样] ...
+    """Defines the AutoEncoder for dimensionality reduction of CNV data."""
+
     def __init__(self, input_dim=25272):
         super(AutoEncoder, self).__init__()
         self.encoder = nn.Sequential(
@@ -29,15 +30,16 @@ class AutoEncoder(nn.Module):
             nn.Linear(1024, 2048), nn.BatchNorm1d(2048), nn.ReLU(),
             nn.Linear(2048, input_dim), nn.Sigmoid(),
         )
+
     def forward(self, x):
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         return encoded, decoded
 
 
-# --- NeRD_Net 定义 (保持不变) ---
 class NeRD_Net(torch.nn.Module):
-    # ... [此处省略NeRD_Net的完整代码，保持原样] ...
+    """Defines the main NeRD (NEtwork-based anlaysis for Rational Drug discovery) model."""
+
     def __init__(self, n_filters=4, num_features_xd=78, output_dim=128, dropout=0.5):
         super(NeRD_Net, self).__init__()
         self.relu = nn.ReLU()
@@ -164,9 +166,10 @@ class NeRD_Net(torch.nn.Module):
         out = self.sigmoid(out)
         return out
 
-# --- 辅助函数 (保持不变) ---
-# ... [此处省略 smile_to_graph_custom, load_drug_fingerprints_from_file, etc. 的代码，保持原样] ...
+
+# --- Helper Functions ---
 def smile_to_graph_custom(smile_string, num_node_features=78):
+    """Converts a SMILES string to a graph representation (node features and edge index)."""
     mol = Chem.MolFromSmiles(smile_string)
     if mol is None:
         mol = Chem.MolFromSmiles(smile_string, sanitize=True)
@@ -198,7 +201,10 @@ def smile_to_graph_custom(smile_string, num_node_features=78):
     else:
         edge_index = torch.tensor(np.array(edge_list).T, dtype=torch.long)
     return x, edge_index
+
+
 def load_drug_fingerprints_from_file(fingerprint_file_path, drug_name_col=0, expected_length=None):
+    """Loads pre-computed drug fingerprints from a CSV file."""
     fingerprint_dict = {}
     print(f"Loading drug fingerprints from {fingerprint_file_path}...")
     try:
@@ -219,7 +225,10 @@ def load_drug_fingerprints_from_file(fingerprint_file_path, drug_name_col=0, exp
     except Exception as e:
         print(f"  ERROR: Could not load fingerprints from '{fingerprint_file_path}': {e}")
     return fingerprint_dict
+
+
 def read_drugs_for_prediction_from_file(file_path):
+    """Reads a list of drugs (name, SMILES) to predict from a CSV file."""
     drugs_to_predict = []
     try:
         with open(file_path, 'r', newline='', encoding='utf-8-sig') as csvfile:
@@ -246,14 +255,17 @@ def read_drugs_for_prediction_from_file(file_path):
         print(f"ERROR reading drug prediction input file {file_path}: {e}");
         return []
     return drugs_to_predict
+
+
 def get_cnv_autoencoder(train_cnv_path, device, ae_epochs=50, batch_size=64):
-    print("正在加载并训练CNV降维模型 (Autoencoder)...")
+    """Loads training CNV data and dynamically trains an AutoEncoder for feature reduction."""
+    print("Loading and training the CNV dimensionality reduction model (Autoencoder)...")
     try:
         train_cnv_df = pd.read_csv(train_cnv_path, index_col=0)
         train_cnv_features = train_cnv_df.values.astype(np.float32)
         original_dim = train_cnv_features.shape[1]
     except FileNotFoundError:
-        print(f"错误: 训练用CNV数据文件 '{train_cnv_path}' 未找到。");
+        print(f"Error: Training CNV data file '{train_cnv_path}' not found.");
         return None, None, None
     scaler = MinMaxScaler(feature_range=(0, 1))
     train_cnv_scaled = scaler.fit_transform(train_cnv_features)
@@ -261,8 +273,8 @@ def get_cnv_autoencoder(train_cnv_path, device, ae_epochs=50, batch_size=64):
     autoencoder = AutoEncoder(input_dim=original_dim).to(device)
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=1e-4)
     loss_func = nn.MSELoss()
-    print(f"  开始训练AE ({ae_epochs}个轮次)...")
-    progress_bar = tqdm(range(ae_epochs), desc="    AE训练中")
+    print(f"  Starting AE training ({ae_epochs} epochs)...")
+    progress_bar = tqdm(range(ae_epochs), desc="    AE Training")
     for epoch in progress_bar:
         autoencoder.train()
         _, decoded = autoencoder(train_tensor)
@@ -271,11 +283,14 @@ def get_cnv_autoencoder(train_cnv_path, device, ae_epochs=50, batch_size=64):
         loss.backward();
         optimizer.step()
         progress_bar.set_postfix(loss=f"{loss.item():.6f}")
-    print("  AE训练完成。")
+    print("  AE training complete.")
     autoencoder.eval()
     return autoencoder, scaler, train_cnv_df.columns
+
+
 def predict_response(model, drug_graph_x, drug_graph_edge_index, drug_fingerprint_tensor,
                      cell_miRNA_tensor, cell_copynumber_tensor, device):
+    """Performs prediction for a single drug-cell pair."""
     model.eval()
     data = Data(x=drug_graph_x, edge_index=drug_graph_edge_index, finger=drug_fingerprint_tensor.unsqueeze(0),
                 miRNA=cell_miRNA_tensor, copynumber=cell_copynumber_tensor)
@@ -284,30 +299,42 @@ def predict_response(model, drug_graph_x, drug_graph_edge_index, drug_fingerprin
     with torch.no_grad():
         normalized_prediction = model(data).cpu().item()
     return normalized_prediction
+
+
 g_min_ic50, g_max_ic50 = None, None
+
+
 def load_ic50_scaling_params(params_file_path):
+    """Loads parameters for IC50 value scaling from a JSON file."""
     global g_min_ic50, g_max_ic50
     try:
         with open(params_file_path, 'r') as f:
             params = json.load(f)
         g_min_ic50, g_max_ic50 = params.get('min_ic50'), params.get('max_ic50')
         if g_min_ic50 is None or g_max_ic50 is None:
-            print(f"  警告: 'min_ic50' 或 'max_ic50' 未在文件 '{params_file_path}' 中找到。");
+            print(f"  Warning: 'min_ic50' or 'max_ic50' not found in file '{params_file_path}'.");
             return False
-        print(f"  IC50反归一化参数已加载: min={g_min_ic50}, max={g_max_ic50}");
+        print(f"  IC50 un-scaling parameters loaded: min={g_min_ic50}, max={g_max_ic50}");
         return True
     except FileNotFoundError:
-        print(f"  错误: IC50缩放参数文件 '{params_file_path}' 未找到。"); return False
+        print(f"  Error: IC50 scaling parameters file '{params_file_path}' not found.");
+        return False
     except Exception as e:
-        print(f"  错误: 加载IC50缩放参数失败: {e}"); return False
+        print(f"  Error: Failed to load IC50 scaling parameters: {e}");
+        return False
+
+
 def unscale_ic50_value(scaled_value):
+    """Unscales a normalized prediction back to the original IC50 value."""
     if g_min_ic50 is None or g_max_ic50 is None or pd.isna(scaled_value): return np.nan
     ic50_range = g_max_ic50 - g_min_ic50
     return scaled_value * ic50_range + g_min_ic50 if ic50_range != 0 else g_min_ic50
-# --- 主执行逻辑 ---
-# 【【【 MODIFIED FUNCTION 】】】
+
+
+# --- Main Execution Logic ---
 def prepare_new_cell_line_data(new_mirna_path, new_cnv_path, train_mirna_path, train_cnv_path_raw, device):
-    print("正在准备新的细胞系数据...")
+    """Prepares new cell line data by aligning features and applying dimensionality reduction."""
+    print("Preparing new cell line data...")
     autoencoder, cnv_scaler, train_cnv_cols = get_cnv_autoencoder(train_cnv_path_raw, device)
     if autoencoder is None: return {}
     try:
@@ -316,27 +343,25 @@ def prepare_new_cell_line_data(new_mirna_path, new_cnv_path, train_mirna_path, t
         train_mirna_features = train_mirna_df.iloc[:, 1:].values.astype(np.float32)
         miRNA_scaler = MinMaxScaler(feature_range=(0, 1)).fit(train_mirna_features)
     except FileNotFoundError as e:
-        print(f"错误: 训练miRNA文件未找到: {e}。");
+        print(f"Error: Training miRNA file not found: {e}.");
         return {}
     try:
-        # MODIFICATION: Use the parameter from command line
         new_mirna_df = pd.read_csv(new_mirna_path, index_col=0)
         new_cnv_df = pd.read_csv(new_cnv_path, index_col=0)
     except FileNotFoundError as e:
-        print(f"错误: 新细胞系样本文件未找到: {e}。");
+        print(f"Error: New cell line sample file not found: {e}.");
         return {}
-    
-    # ... [rest of the function remains the same] ...
+
     new_cell_line_names = new_mirna_df.index.tolist()
     if set(new_cell_line_names) != set(new_cnv_df.index.tolist()):
-        print("警告: miRNA和CNV文件的细胞系列表不匹配。将使用二者的交集。")
+        print("Warning: miRNA and CNV files have mismatched cell line lists. Using the intersection.")
         shared_cells = list(set(new_cell_line_names) & set(new_cnv_df.index.tolist()))
         new_mirna_df, new_cnv_df = new_mirna_df.loc[shared_cells], new_cnv_df.loc[shared_cells]
         new_cell_line_names = shared_cells
-    print("  正在对齐并归一化miRNA数据...")
+    print("  Aligning and normalizing miRNA data...")
     new_mirna_aligned_df = new_mirna_df.reindex(columns=train_mirna_cols, fill_value=0.0)
     new_mirna_normalized = miRNA_scaler.transform(new_mirna_aligned_df.values.astype(np.float32))
-    print("  正在对齐、归一化并使用AE降维CNV数据...")
+    print("  Aligning, normalizing, and using AE to reduce CNV data dimensionality...")
     new_cnv_aligned_df = new_cnv_df.reindex(columns=train_cnv_cols, fill_value=0.0)
     new_cnv_scaled = cnv_scaler.transform(new_cnv_aligned_df.values.astype(np.float32))
     new_cnv_tensor = torch.tensor(new_cnv_scaled, dtype=torch.float).to(device)
@@ -356,61 +381,67 @@ def prepare_new_cell_line_data(new_mirna_path, new_cnv_path, train_mirna_path, t
             'miRNA': torch.tensor(new_mirna_normalized[i:i + 1], dtype=torch.float),
             'copynumber': torch.tensor(new_cnv_normalized[i:i + 1], dtype=torch.float)
         }
-    print(f"  成功准备了 {len(prepared_data)} 个新细胞系的数据。")
+    print(f"  Successfully prepared data for {len(prepared_data)} new cell lines.")
     return prepared_data
 
+
 if __name__ == "__main__":
-    # --- MODIFICATION: Add argparse ---
-    parser = argparse.ArgumentParser(description="NeRD 药物响应预测脚本")
-    parser.add_argument('--model_path', type=str, required=True, help='预训练模型文件路径')
-    parser.add_argument('--output_file', type=str, required=True, help='输出预测结果的CSV文件路径')
-    parser.add_argument('--drugs_input_file', type=str, required=True, help='待预测的药物SMILES文件路径')
-    parser.add_argument('--new_mirna_file', type=str, required=True, help='新细胞系的miRNA表达数据文件路径')
-    parser.add_argument('--new_cnv_file', type=str, required=True, help='新细胞系的CNV数据文件路径')
-    parser.add_argument('--precomputed_fingerprint_file', type=str, required=True, help='预计算的药物指纹文件路径')
-    parser.add_argument('--train_mirna_file', type=str, required=True, help='用于对齐的训练集miRNA文件路径')
-    parser.add_argument('--train_cnv_raw_file', type=str, required=True, help='用于AE训练和对齐的原始CNV文件路径')
-    parser.add_argument('--ic50_scaling_params_file', type=str, required=True, help='IC50归一化参数的JSON文件路径')
+    parser = argparse.ArgumentParser(description="NeRD drug response prediction script")
+    parser.add_argument('--model_path', type=str, required=True, help='Path to the pretrained model file')
+    parser.add_argument('--output_file', type=str, required=True,
+                        help='Path to the output CSV file for prediction results')
+    parser.add_argument('--drugs_input_file', type=str, required=True,
+                        help='Path to the drug SMILES file to be predicted')
+    parser.add_argument('--new_mirna_file', type=str, required=True,
+                        help='Path to the miRNA expression data file for new cell lines')
+    parser.add_argument('--new_cnv_file', type=str, required=True, help='Path to the CNV data file for new cell lines')
+    parser.add_argument('--precomputed_fingerprint_file', type=str, required=True,
+                        help='Path to the precomputed drug fingerprint file')
+    parser.add_argument('--train_mirna_file', type=str, required=True,
+                        help='Path to the training set miRNA file for alignment')
+    parser.add_argument('--train_cnv_raw_file', type=str, required=True,
+                        help='Path to the raw CNV file for AE training and alignment')
+    parser.add_argument('--ic50_scaling_params_file', type=str, required=True,
+                        help='Path to the JSON file with IC50 normalization parameters')
     args = parser.parse_args()
 
     N_FILTERS, NUM_FEATURES_XD, OUTPUT_DIM, DRUG_FINGERPRINT_LENGTH = 4, 78, 128, 881
 
     DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {DEVICE}")
+    print(f"Using device: {DEVICE}")
 
-    print(f"\n正在从 {args.model_path} 加载主预测模型...")
+    print(f"\nLoading main prediction model from {args.model_path}...")
     model = NeRD_Net(n_filters=N_FILTERS, num_features_xd=NUM_FEATURES_XD, output_dim=OUTPUT_DIM, dropout=0.0)
     try:
         model.load_state_dict(torch.load(args.model_path, map_location=DEVICE));
         model.to(DEVICE);
         model.eval()
-        print("  主模型加载成功。")
+        print("  Main model loaded successfully.")
     except Exception as e:
-        print(f"错误: 加载主模型失败: {e}");
+        print(f"Error: Failed to load main model: {e}");
         exit()
-    
-    print(f"\n正在从 {args.ic50_scaling_params_file} 加载IC50归一化参数...")
+
+    print(f"\nLoading IC50 normalization parameters from {args.ic50_scaling_params_file}...")
     scaling_params_loaded_successfully = load_ic50_scaling_params(args.ic50_scaling_params_file)
 
-    new_cell_line_data = prepare_new_cell_line_data(args.new_mirna_file, args.new_cnv_file, args.train_mirna_file, args.train_cnv_raw_file, DEVICE)
+    new_cell_line_data = prepare_new_cell_line_data(args.new_mirna_file, args.new_cnv_file, args.train_mirna_file,
+                                                    args.train_cnv_raw_file, DEVICE)
     if not new_cell_line_data:
-        print("错误: 未能加载任何新的细胞系数据，无法进行预测。");
+        print("Error: No new cell line data could be loaded. Cannot proceed with prediction.");
         exit()
-    
-    print(f"\n正在从 {args.drugs_input_file} 读取待预测的药物...")
+
+    print(f"\nReading drugs to predict from {args.drugs_input_file}...")
     drugs_for_prediction = read_drugs_for_prediction_from_file(args.drugs_input_file)
     if not drugs_for_prediction:
-        print("错误: 未能加载任何待预测的药物，无法进行预测。");
+        print("Error: No drugs to predict could be loaded. Cannot proceed with prediction.");
         exit()
-    print(f"  找到 {len(drugs_for_prediction)} 种药物用于预测。")
+    print(f"  Found {len(drugs_for_prediction)} drugs for prediction.")
     drug_fingerprints_store = load_drug_fingerprints_from_file(args.precomputed_fingerprint_file, drug_name_col=0,
                                                                expected_length=DRUG_FINGERPRINT_LENGTH)
 
-    print("\n正在准备所有药物数据 (生成图结构和查找指纹)...")
+    print("\nPreparing all drug data (generating graph structures and looking up fingerprints)...")
     prepared_drugs_list = []
-    for drug_info in tqdm(drugs_for_prediction, desc="  准备药物中"):
-        # ... [rest of the main block is the same] ...
-#<-- 请将源文件中未修改的函数复制到这里 -->
+    for drug_info in tqdm(drugs_for_prediction, desc="  Preparing drugs"):
         drug_name, drug_smiles = drug_info["name"], drug_info["smiles"]
         prepared_drug_data = {'name': drug_name, 'smiles': drug_smiles, 'status': 'Pending',
                               'graph_x': None, 'graph_edge_index': None, 'fingerprint': None}
@@ -418,7 +449,7 @@ if __name__ == "__main__":
         fp_numpy_arr = drug_fingerprints_store.get(clean_drug_name)
         if fp_numpy_arr is None:
             tqdm.write(
-                f"  信息: 在指纹库中未找到药物 '{drug_name}' (查找时使用: '{clean_drug_name}')。该药物的所有预测将被跳过。")
+                f"  Info: Drug '{drug_name}' (looked up as: '{clean_drug_name}') not found in fingerprint library. All predictions for this drug will be skipped.")
             prepared_drug_data['status'] = 'Error_FingerprintMissing'
             prepared_drugs_list.append(prepared_drug_data)
             continue
@@ -428,23 +459,23 @@ if __name__ == "__main__":
             prepared_drug_data['fingerprint'] = torch.tensor(fp_numpy_arr, dtype=torch.float)
             prepared_drug_data['status'] = 'Success'
         except ValueError as e:
-            tqdm.write(f"  错误: 无法为药物 '{drug_name}' 生成图结构。该药物的所有预测将被跳过。错误: {e}")
+            tqdm.write(
+                f"  Error: Could not generate graph structure for drug '{drug_name}'. All predictions for this drug will be skipped. Error: {e}")
             prepared_drug_data['status'] = f'Error_GraphGen: {e}'
 
         prepared_drugs_list.append(prepared_drug_data)
 
-    print(f"\n准备完成。{sum(1 for d in prepared_drugs_list if d['status'] == 'Success')} / {len(prepared_drugs_list)} 种药物可以用于预测。")
-    print(f"开始预测药物与 {len(new_cell_line_data)} 个细胞系的药物反应...")
+    print(
+        f"\nPreparation complete. {sum(1 for d in prepared_drugs_list if d['status'] == 'Success')} / {len(prepared_drugs_list)} drugs can be used for prediction.")
+    print(f"Starting prediction of drug response for {len(new_cell_line_data)} cell lines...")
 
     all_results = []
     prediction_tasks = list(itertools.product(prepared_drugs_list, new_cell_line_data.items()))
 
-    with tqdm(prediction_tasks, desc="药物-细胞系响应预测") as pbar:
+    with tqdm(prediction_tasks, desc="Drug-Cell Response Prediction") as pbar:
         for prepared_drug, (cell_name, omics_data) in pbar:
-            # ... [rest of the prediction loop is the same] ...
-#<-- 请将源文件中未修改的函数复制到这里 -->
             drug_name, drug_smiles = prepared_drug["name"], prepared_drug["smiles"]
-            pbar.set_description(f"预测: {drug_name[:15]:<15} vs {cell_name[:15]:<15}")
+            pbar.set_description(f"Predicting: {drug_name[:15]:<15} vs {cell_name[:15]:<15}")
 
             if prepared_drug['status'] != 'Success':
                 all_results.append({'drug_name': drug_name, 'drug_smiles': drug_smiles, 'cell_line_name': cell_name,
@@ -479,8 +510,8 @@ if __name__ == "__main__":
     if all_results:
         results_df = pd.DataFrame(all_results)
         results_df.to_csv(args.output_file, index=False, float_format='%.8g')
-        print(f"\n所有预测结果已保存至 '{args.output_file}'")
+        print(f"\nAll prediction results have been saved to '{args.output_file}'")
     else:
-        print("\n未能生成任何预测结果。")
+        print("\nNo prediction results were generated.")
 
-    print("\n脚本执行完毕。")
+    print("\nScript execution finished.")
