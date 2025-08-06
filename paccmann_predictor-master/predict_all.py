@@ -22,10 +22,10 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-# 动态添加路径，确保可以找到项目内的模块
+# Dynamically add path to ensure local modules can be found
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# 延迟导入，以防路径问题
+# Delayed import in case of path issues
 try:
     from models import MODEL_FACTORY
     from utils.utils import get_device
@@ -46,6 +46,7 @@ logger = logging.getLogger("PaccMannPredictor_Unified")
 
 
 def clean_gene_name(name: str) -> str:
+    """Standardizes a gene name by converting to lowercase and removing non-alphanumeric characters."""
     if not isinstance(name, str): return ""
     return re.sub(r'[^a-z0-9]', '', name.lower())
 
@@ -56,6 +57,10 @@ def load_and_process_gep_data(
         model_training_params: dict,
         fill_missing_gene_value: float = 0.0
 ) -> tuple:
+    """
+    Loads GEP data, conforms it to the model's expected gene list and order,
+    and applies standardization/scaling using parameters from the training run.
+    """
     num_genes_expected_by_model = model_training_params.get('number_of_genes')
     if num_genes_expected_by_model is None:
         logger.error(
@@ -78,11 +83,13 @@ def load_and_process_gep_data(
 
     logger.debug(f"  Raw GEP for prediction shape (cells, GEP_file_columns): {df_gep_raw_pred.shape}")
 
+    # Create a mapping from cleaned gene names in the prediction file to their original names
     pred_gep_file_genes_original_names = df_gep_raw_pred.columns.tolist()
     pred_gep_file_cleaned_map = {clean_gene_name(g): g for g in pred_gep_file_genes_original_names}
 
     all_cells_in_pred_gep = df_gep_raw_pred.index.tolist()
 
+    # Create a placeholder DataFrame with the correct shape and order
     df_gep_conformed = pd.DataFrame(
         data=fill_missing_gene_value,
         index=all_cells_in_pred_gep,
@@ -93,6 +100,7 @@ def load_and_process_gep_data(
     genes_found_in_pred_gep_count = 0
     genes_from_spec_not_in_pred_gep = []
 
+    # Fill the conformed DataFrame with data from the raw GEP file
     for gene_from_spec in target_gene_list_from_training_spec:
         cleaned_spec_gene = clean_gene_name(gene_from_spec)
         if cleaned_spec_gene in pred_gep_file_cleaned_map:
@@ -113,6 +121,7 @@ def load_and_process_gep_data(
     logger.info(f"  Successfully mapped/filled {genes_found_in_pred_gep_count} genes from '{gep_filepath}' into the "
                 f"{num_genes_expected_by_model}-gene structure.")
 
+    # Transpose for processing (genes as rows, cells as columns)
     df_gep_transposed = df_gep_conformed.T
     gep_values = df_gep_transposed.values
     cell_lines = list(df_gep_transposed.columns)
@@ -129,6 +138,7 @@ def load_and_process_gep_data(
     gep_processing_config = model_training_params.get('gene_expression_processing_parameters', {})
     gep_proc_actual_params = gep_processing_config.get('parameters', {})
 
+    # Apply standardization if specified in the model's training parameters
     if model_training_params.get('gene_expression_standardize', True):
         means_param = gep_proc_actual_params.get('mean')
         stds_param = gep_proc_actual_params.get('std')
@@ -174,6 +184,7 @@ def load_and_process_gep_data(
             logger.warning(
                 "  GEP standardization specified in model, but mean/std params missing in training config. Skipping.")
 
+    # Apply min-max scaling if specified in the model's training parameters
     if model_training_params.get("gene_expression_min_max", False):
         min_vals_param = gep_proc_actual_params.get('min_val')
         max_vals_param = gep_proc_actual_params.get('max_val')
@@ -208,6 +219,7 @@ def load_and_process_gep_data(
         else:
             logger.warning("  GEP min-max scaling specified, but params missing. Skipping.")
 
+    # Final check for NaN or Inf values in the processed GEP data
     if np.isnan(gep_values).any() or np.isinf(gep_values).any():
         nan_count = np.sum(np.isnan(gep_values))
         inf_count = np.sum(np.isinf(gep_values))
@@ -237,6 +249,7 @@ def load_and_process_gep_data(
 
 
 def denormalize_predictions(predictions_normalized: np.ndarray, model_training_params: dict) -> np.ndarray:
+    """Denormalizes model predictions back to the original sensitivity scale."""
     should_denormalize = model_training_params.get("drug_sensitivity_min_max", False)
     if not should_denormalize:
         dsp_config_check = model_training_params.get("drug_sensitivity_processing_parameters", {})
@@ -277,6 +290,7 @@ def denormalize_predictions(predictions_normalized: np.ndarray, model_training_p
 
 
 class FixBnInputDim(nn.Module):
+    """A monkey patch layer to fix BatchNorm1d input dimensions for legacy models."""
     def __init__(self, expected_channels_for_bn: int):
         super().__init__();
         self.expected_channels_for_bn = expected_channels_for_bn
@@ -294,6 +308,7 @@ class FixBnInputDim(nn.Module):
 
 
 class SqueezeCorrectlyForSoftmax(nn.Module):
+    """A monkey patch layer to correctly squeeze tensor dimensions before softmax."""
     def __init__(self):
         super().__init__();
         logger.debug("MONKEY_PATCH_INIT (SqueezeCorrectlyForSoftmax).")
@@ -308,6 +323,7 @@ class SqueezeCorrectlyForSoftmax(nn.Module):
 
 def patched_context_attention_forward(self_attn_layer, reference: torch.Tensor, context: torch.Tensor,
                                       average_seq: bool = True):
+    """A patched forward method for the ContextAttentionLayer to handle dimension issues."""
     reference_attention = self_attn_layer.reference_projection(reference)
     projected_context = self_attn_layer.context_projection(context)
     if self_attn_layer.context_sequence_length > 1:
@@ -340,10 +356,12 @@ def main_predict_unified(
         cell_lines_subset_filepath: str = None,
         test_with_random_weights: bool = False
 ):
+    """Main function to drive the unified prediction workflow."""
     logger.info(f"=== Unified PaccMann Prediction Started (Logger: {logger.name}) ===")
     if test_with_random_weights: logger.warning("***** RUNNING IN RANDOM WEIGHTS TEST MODE *****")
     logger.info(f"Using model artifacts from run directory: {model_run_path}")
 
+    # Load parameters used during the model's training
     params_file_path_in_run = os.path.join(model_run_path, "model_params_used.json")
     if not os.path.exists(params_file_path_in_run):
         logger.error(f"CRITICAL: 'model_params_used.json' not found in {model_run_path}.");
@@ -361,6 +379,7 @@ def main_predict_unified(
     logger.info(
         f"Loaded target gene specification: {gene_filepath_spec} with {num_genes_defined_by_spec} genes. This will be the target gene dimension.")
 
+    # Configure SMILES tokenizer based on training parameters
     smiles_tokenizer = SMILESTokenizer.from_pretrained(smiles_language_filepath)
     if "smiles_padding_length" not in model_training_params:
         logger.error("CRITICAL: 'smiles_padding_length' key is missing from the loaded training parameters JSON file.")
@@ -407,6 +426,7 @@ def main_predict_unified(
             f"CRITICAL: SMILESTokenizer padding_length ({smiles_tokenizer.padding_length}) != target ({effective_smiles_padding_length}) after all attempts.");
         sys.exit(1)
 
+    # Validate gene dimensions
     num_genes_from_params_json = model_training_params.get('number_of_genes')
     if num_genes_from_params_json is None:
         logger.error("CRITICAL: 'number_of_genes' not found in model_training_params.");
@@ -420,12 +440,14 @@ def main_predict_unified(
             f"These MUST match.")
         sys.exit(1)
 
+    # Process GEP data
     gep_values_processed, cell_line_names_in_gep_file, final_gene_list_used_for_input = load_and_process_gep_data(
         gep_filepath, target_gene_list_for_model_definition, model_training_params
     )
     logger.info(
         f"GEP data processed for {len(cell_line_names_in_gep_file)} cell lines, conformed to {len(final_gene_list_used_for_input)} genes.")
 
+    # Prepare parameters and instantiate the model
     params_for_model_creation = deepcopy(model_training_params)
     params_for_model_creation[
         "number_of_genes"] = num_genes_from_params_json
@@ -436,6 +458,7 @@ def main_predict_unified(
                 f"smiles_padding_length={params_for_model_creation['smiles_padding_length']}, "
                 f"smiles_vocabulary_size={params_for_model_creation['smiles_vocabulary_size']}")
 
+    # Handle optional cell line subset
     cell_lines_for_prediction = cell_line_names_in_gep_file
     gep_indices_for_prediction = list(range(len(cell_line_names_in_gep_file)))
     if cell_lines_subset_filepath:
@@ -466,6 +489,7 @@ def main_predict_unified(
     model = MODEL_FACTORY[model_class_name](params_for_model_creation).to(device)
     model._associate_language(smiles_tokenizer)
 
+    # Apply monkey patches for model compatibility
     logger.info("Applying monkey patches...")
     patched_bn_fixer_count, patched_attn_squeeze_count, patched_attn_forward_count = 0, 0, 0
     try:
@@ -507,6 +531,7 @@ def main_predict_unified(
     except Exception as e_patch:
         logger.error(f"Error during monkey patching: {e_patch}", exc_info=True)
 
+    # Load model weights
     if not test_with_random_weights:
         weights_folder = os.path.join(model_run_path, "weights")
         selected_model_file, max_epoch = None, -1
@@ -552,6 +577,7 @@ def main_predict_unified(
         logger.info("Skipping weight loading for random weight test.")
     model.eval()
 
+    # Load SMILES for prediction
     if not os.path.exists(predict_smiles_filepath): logger.error(
         f"Predict SMILES file not found: {predict_smiles_filepath}"); sys.exit(1)
     logger.info(f"Reading SMILES for prediction from: {predict_smiles_filepath}")
@@ -563,6 +589,7 @@ def main_predict_unified(
     logger.info(f"Found {len(predict_df)} drugs for prediction. predict_df is empty: {predict_df.empty}")
     if not predict_df.empty: logger.info(f"predict_df head (first 2 rows):\n{predict_df.head(2)}")
 
+    # Prediction loop
     prediction_results = []
     if predict_df.empty or not cell_lines_for_prediction:
         logger.warning("No drugs to predict or no cell lines to predict on. Skipping prediction loop.")
@@ -582,6 +609,7 @@ def main_predict_unified(
 
                 smiles_tensor = None
                 try:
+                    # Tokenize and process SMILES string
                     token_indexes_tensor = smiles_tokenizer.smiles_to_token_indexes(smiles_string)
                     if token_indexes_tensor.ndim > 1: token_indexes_tensor = token_indexes_tensor.flatten()
                     final_token_sequence = token_indexes_tensor
@@ -610,6 +638,7 @@ def main_predict_unified(
                     continue
                 if smiles_tensor is None: continue
 
+                # Iterate over cell lines and predict for each pair
                 for gep_col_idx, cell_name_for_pred in zip(gep_indices_for_prediction, cell_lines_for_prediction):
                     gep_vector_for_cell = gep_values_processed[:, gep_col_idx]
                     gep_tensor = torch.tensor([gep_vector_for_cell], dtype=torch.float32).to(device)
@@ -645,6 +674,7 @@ def main_predict_unified(
                          'predicted_value_raw': pred_raw_value,
                          'predicted_value_denormalized': pred_denormalized_value})
 
+    # Save final results
     logger.info(f"Total entries in prediction_results: {len(prediction_results)}")
     results_df = pd.DataFrame(prediction_results)
     logger.info(f"Final results_df - Is empty: {results_df.empty}, Shape: {results_df.shape}")
