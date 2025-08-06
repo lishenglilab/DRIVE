@@ -15,28 +15,28 @@ import torch.utils.data as Data
 import random
 import datetime
 
-# 导入tqdm，如果失败则定义一个替代函数
+# Import tqdm, define a fallback function if it fails
 try:
     from tqdm import tqdm
 except ImportError:
-    print("错误: 'tqdm' 库未找到。")
-    print("请在您的环境中运行 'pip install tqdm' 来安装它。")
+    print("Error: 'tqdm' library not found.")
+    print("Please run 'pip install tqdm' in your environment to install it.")
 
 
     def tqdm(iterable, *args, **kwargs):
         return iterable
 
-# 尝试导入mygene
+# Try to import mygene
 try:
     import mygene
 except ImportError:
-    print("错误: 'mygene' 库未找到。")
-    print("请在您的环境中运行 'pip install mygene' 来安装它。")
+    print("Error: 'mygene' library not found.")
+    print("Please run 'pip install mygene' in your environment to install it.")
     exit()
 
 
 # ==============================================================================
-# 1. 模型定义 (无变化)
+# 1. Model Definition
 # ==============================================================================
 class Auto_Encoder(nn.Module):
     def __init__(self, device, indim, outdim=400):
@@ -169,7 +169,7 @@ class GADRP_Net(nn.Module):
                                                                           edge_idx_input);
 
         selection_indices = (
-                    drug_cell_indices_to_select[:, 0] * gcn_batch_cell_num + drug_cell_indices_to_select[:, 1]).long();
+                drug_cell_indices_to_select[:, 0] * gcn_batch_cell_num + drug_cell_indices_to_select[:, 1]).long();
 
         feature1 = emb_out1[selection_indices];
         feature2 = emb_out2[selection_indices];
@@ -192,9 +192,10 @@ class GADRP_Net(nn.Module):
 
 
 # ==============================================================================
-# 2. 动态预处理模块 (无变化)
+# 2. Dynamic Preprocessing Module
 # ==============================================================================
 def sym_adj(adj):
+    # Symmetrically normalize adjacency matrix.
     adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj);
     adj = adj.tocoo();
     rowsum = np.array(adj.sum(1));
@@ -205,7 +206,7 @@ def sym_adj(adj):
 
 
 def get_ic50_scaling_parameters(drug_response_file, cell_index_file):
-    print("  > 正在动态计算IC50缩放参数...")
+    print("  > Dynamically calculating IC50 scaling parameters...")
     try:
         cell_index_list = pd.read_csv(cell_index_file, sep=',', header=None, index_col=0).index.tolist()
         drug_cell_label = pd.read_csv(drug_response_file, sep=',', header=0,
@@ -226,10 +227,10 @@ def get_ic50_scaling_parameters(drug_response_file, cell_index_file):
         ic50_values_for_scaling = drug_cell_label_filtered["ic50"].values.astype(float)
         min_val = np.min(ic50_values_for_scaling)
         max_val = np.max(ic50_values_for_scaling)
-        print(f"    > 计算完成: min_ic50 = {min_val}, max_ic50 = {max_val}")
+        print(f"    > Calculation complete: min_ic50 = {min_val}, max_ic50 = {max_val}")
         return min_val, max_val
     except Exception as e:
-        print(f"    错误: 动态计算IC50缩放参数失败: {e}")
+        print(f"    Error: Failed to dynamically calculate IC50 scaling parameters: {e}")
         return None, None
 
 
@@ -241,7 +242,7 @@ class DynamicPreprocessor:
         self.gene_symbol_to_id_map = {}
 
     def run(self):
-        print("--- 动态预处理开始 ---")
+        print("--- Dynamic preprocessing started ---")
         self.data_cache['min_ic50'], self.data_cache['max_ic50'] = get_ic50_scaling_parameters(
             self.args.drug_response_file, self.args.cell_index_file)
 
@@ -251,11 +252,11 @@ class DynamicPreprocessor:
         self._preprocess_drugs()
         self._preprocess_cells()
         self._build_edge_idx()
-        print("--- 动态预处理完成 ---\n")
+        print("--- Dynamic preprocessing finished ---\n")
         return self.data_cache
 
     def _convert_gene_symbols_to_ids(self):
-        print("  > 从新细胞系文件收集基因名并查询ID...")
+        print("  > Collecting gene names from new cell line files and querying IDs...")
         gene_name_files = [self.args.new_exp_file, self.args.new_cn_file]
         all_gene_symbols = set()
         for f in gene_name_files:
@@ -264,32 +265,32 @@ class DynamicPreprocessor:
                 df = pd.read_csv(f, index_col=0)
                 all_gene_symbols.update(df.columns.tolist())
             except Exception as e:
-                print(f"    警告: 无法读取文件 {f} 的列名: {e}")
+                print(f"    Warning: Could not read column names from file {f}: {e}")
 
         if not all_gene_symbols:
-            print("    > 未找到任何新基因名，跳过查询。")
+            print("    > No new gene names found, skipping query.")
             return
 
-        print(f"    > 共找到 {len(all_gene_symbols)} 个唯一的基因名，开始分批查询...")
+        print(f"    > Found {len(all_gene_symbols)} unique gene names, starting batch query...")
         mg = mygene.MyGeneInfo()
         gene_list = list(all_gene_symbols)
         batch_size = 1000
 
         for i in range(0, len(gene_list), batch_size):
             batch = gene_list[i:i + batch_size]
-            print(f"      > 正在查询批次 {i // batch_size + 1}/{(len(gene_list) + batch_size - 1) // batch_size}...",
+            print(f"      > Querying batch {i // batch_size + 1}/{(len(gene_list) + batch_size - 1) // batch_size}...",
                   end=" ")
             try:
                 query_result = mg.querymany(batch, scopes='symbol', fields='entrezgene', species='human', verbose=False)
                 for query in query_result:
                     if 'entrezgene' in query and 'query' in query:
                         self.gene_symbol_to_id_map[query['query']] = str(query['entrezgene'])
-                print("成功。")
+                print("Success.")
             except Exception as e:
-                print(f"失败: {e}. 跳过此批次。")
+                print(f"Failed: {e}. Skipping this batch.")
                 continue
 
-        print(f"    > 查询完成。成功映射 {len(self.gene_symbol_to_id_map)} 个基因名到Gene ID。")
+        print(f"    > Query complete. Successfully mapped {len(self.gene_symbol_to_id_map)} gene names to Gene IDs.")
 
     def _rename_new_sample_cols(self, df):
         rename_map = {symbol: gene_id for symbol, gene_id in self.gene_symbol_to_id_map.items() if symbol in df.columns}
@@ -299,7 +300,7 @@ class DynamicPreprocessor:
         return df_filtered.T.groupby(level=0).mean().T
 
     def _preprocess_drugs(self):
-        print("  > 正在处理药物数据...")
+        print("  > Processing drug data...")
         known_drug_physchem_df = pd.read_csv(self.args.drug_physicochemical_file, index_col=0)
         known_drug_fingerprint_df = pd.read_csv(self.args.all_drugs_feature_file, index_col=0)
 
@@ -308,14 +309,14 @@ class DynamicPreprocessor:
 
         self.data_cache['new_drug_names'] = []
         if self.args.new_drug_feature_file and os.path.exists(self.args.new_drug_feature_file):
-            print("    > 发现新药文件，正在加载...")
+            print("    > New drug file found, loading...")
             new_drug_df = pd.read_csv(self.args.new_drug_feature_file, index_col=0)
             self.data_cache['new_drug_names'] = new_drug_df.index.tolist()
             new_physchem_df = new_drug_df.reindex(columns=known_drug_physchem_df.columns, fill_value=0)
             new_fingerprint_df = new_drug_df.reindex(columns=known_drug_fingerprint_df.columns, fill_value=0)
             all_physchem_df_list.append(new_physchem_df)
             all_fingerprint_df_list.append(new_fingerprint_df)
-            print(f"    > 成功加载 {len(self.data_cache['new_drug_names'])} 种新药。")
+            print(f"    > Successfully loaded {len(self.data_cache['new_drug_names'])} new drugs.")
 
         all_physchem_df = pd.concat(all_physchem_df_list)
         all_fingerprint_df = pd.concat(all_fingerprint_df_list)
@@ -336,14 +337,14 @@ class DynamicPreprocessor:
         self.data_cache['drug_sim_top10'] = drug_sim_top10
         self.data_cache['all_drug_features_fingerprints'] = torch.from_numpy(
             all_fingerprint_df.values.astype(np.float32)).to(self.device)
-        print("    > 药物数据处理完毕。")
+        print("    > Drug data processing finished.")
 
     def _preprocess_cells(self):
-        print("  > 正在处理细胞系数据...")
+        print("  > Processing cell line data...")
         train_cell_names = pd.read_csv(self.args.cell_index_file, header=None, index_col=0).index.tolist()
         self.data_cache['train_cell_names'] = train_cell_names
 
-        print("    > 正在处理训练集数据...")
+        print("    > Processing training set data...")
         train_exp_df = pd.read_csv(self.args.train_exp_file, sep=',', header=None, index_col=0, skiprows=1);
         train_exp_df.columns = train_exp_df.columns.astype(str)
         train_cn_df = pd.read_csv(self.args.train_cn_file, sep=',', header=None, index_col=0, skiprows=1);
@@ -357,7 +358,7 @@ class DynamicPreprocessor:
         self.data_cache['train_meth_scaled'] = train_meth_raw;
         self.data_cache['train_mirna_scaled'] = train_mirna_raw
 
-        print("    > 动态训练AE并降维训练集数据...")
+        print("    > Dynamically training AE and reducing dimensionality of training set data...")
         exp_ae = self._dynamic_train_ae(torch.from_numpy(train_exp_raw_scaled).float(), 'exp')
         cn_ae = self._dynamic_train_ae(torch.from_numpy(train_cn_raw_scaled).float(), 'cn')
         with torch.no_grad():
@@ -365,7 +366,7 @@ class DynamicPreprocessor:
                 torch.from_numpy(train_exp_raw_scaled).float().to(self.device))
             self.data_cache['old_cn_ae'] = cn_ae.output(torch.from_numpy(train_cn_raw_scaled).float().to(self.device))
 
-        print("    > 计算旧细胞系间相似度...")
+        print("    > Calculating similarity between old cell lines...")
         cell_sim = torch.zeros(len(train_cell_names), len(train_cell_names), device=self.device)
         for i in range(len(train_cell_names)):
             for j in range(len(train_cell_names)):
@@ -380,7 +381,7 @@ class DynamicPreprocessor:
 
         self.data_cache['new_cell_names'] = []
         if self.args.new_exp_file and os.path.exists(self.args.new_exp_file):
-            print("    > 发现新细胞系文件，正在对齐并处理...")
+            print("    > New cell line file found, aligning and processing...")
             new_exp_df_raw = pd.read_csv(self.args.new_exp_file, index_col=0)
             final_new_cell_list = new_exp_df_raw.index.tolist()
 
@@ -409,17 +410,18 @@ class DynamicPreprocessor:
                 self.data_cache['new_exp_ae'] = exp_ae.output(torch.from_numpy(new_exp_scaled).float().to(self.device))
                 self.data_cache['new_cn_ae'] = cn_ae.output(torch.from_numpy(new_cn_scaled).float().to(self.device))
 
-            print(f"    > 成功处理 {len(self.data_cache['new_cell_names'])} 个新细胞系样本。所有组学数据已对齐。")
+            print(
+                f"    > Successfully processed {len(self.data_cache['new_cell_names'])} new cell line samples. All omics data aligned.")
         else:
             self.data_cache['new_exp_ae'] = torch.empty(0, 400, device=self.device)
             self.data_cache['new_cn_ae'] = torch.empty(0, 400, device=self.device)
             self.data_cache['new_meth_scaled'] = np.empty((0, train_meth_dim))
             self.data_cache['new_mirna_scaled'] = np.empty((0, train_mirna_dim))
 
-        print("    > 细胞系数据处理完毕。")
+        print("    > Cell line data processing finished.")
 
     def _build_edge_idx(self):
-        print("  > 正在动态构建全局 GCN edge_idx...")
+        print("  > Dynamically building global GCN edge_idx...")
         cache = self.data_cache;
         drug_sim, cell_sim = cache['drug_sim'], cache['cell_sim']
         drug_sim_top10 = cache['drug_sim_top10']
@@ -439,8 +441,8 @@ class DynamicPreprocessor:
         vals_old, top_indices_old = torch.topk(sim_old, k=10, dim=1)
 
         neighbor_indices_old = (
-                    torch.gather(cand_drug_old, 1, top_indices_old) * M_total_cells + torch.gather(cand_cell_old, 1,
-                                                                                                   top_indices_old)).view(
+                torch.gather(cand_drug_old, 1, top_indices_old) * M_total_cells + torch.gather(cand_cell_old, 1,
+                                                                                               top_indices_old)).view(
             -1)
         row_old = (list_drug_old_cell_old * M_total_cells + list_cell_old_drug_old).view(-1, 1).repeat(1, 10).view(-1)
 
@@ -449,7 +451,7 @@ class DynamicPreprocessor:
         all_vals = [vals_old.cpu().view(-1)]
 
         if M_new_cells > 0:
-            print("    > 正在计算新旧细胞系之间的连接...")
+            print("    > Calculating connections between new and old cell lines...")
             new_meth, new_mirna = cache['new_meth_scaled'], cache['new_mirna_scaled']
             train_meth, train_mirna = cache['train_meth_scaled'], cache['train_mirna_scaled']
 
@@ -497,7 +499,7 @@ class DynamicPreprocessor:
         values = torch.from_numpy(adj_normalized.data).float().to(self.device)
         self.data_cache['final_edge_idx'] = torch.sparse_coo_tensor(indices, values, (total_nodes, total_nodes),
                                                                     requires_grad=False)
-        print(f"    > 全局 GCN edge_idx 构建完毕, 共 {total_nodes} 个节点。")
+        print(f"    > Global GCN edge_idx built, with {total_nodes} nodes in total.")
 
     def _load_and_scale_raw(self, data_file):
         df = pd.read_csv(data_file, index_col=0, header=None, skiprows=1)
@@ -516,14 +518,14 @@ class DynamicPreprocessor:
             target_df = pd.read_csv(target_file, index_col=0)
             return self._align_and_transform_df(target_df, reference_file, scaler)
         except FileNotFoundError:
-            raise FileNotFoundError(f"新样本文件 {target_file} 未找到，无法继续。")
+            raise FileNotFoundError(f"New sample file {target_file} not found, cannot continue.")
 
     def _dynamic_train_ae(self, data, name):
         random.seed(4);
         torch.manual_seed(4)
         in_dim = data.shape[1];
         model = Auto_Encoder(self.device, in_dim, 400).to(self.device);
-        print(f"      > 开始动态训练 {name.upper()} AE (输入维度: {in_dim})...");
+        print(f"      > Starting dynamic training of {name.upper()} AE (input dim: {in_dim})...");
 
         data_loader = Data.DataLoader(data, batch_size=min(428, len(data)), shuffle=True);
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0001);
@@ -531,7 +533,7 @@ class DynamicPreprocessor:
         best_model_state = model.state_dict();
         best_loss = float('inf')
 
-        epoch_iterator = tqdm(range(1, self.args.ae_epochs + 1), desc=f"训练 {name.upper()} AE")
+        epoch_iterator = tqdm(range(1, self.args.ae_epochs + 1), desc=f"Training {name.upper()} AE")
         for epoch in epoch_iterator:
             epoch_loss = 0.0
             model.train()
@@ -551,7 +553,7 @@ class DynamicPreprocessor:
 
             epoch_iterator.set_postfix(loss=f"{avg_epoch_loss:.6f}", best_loss=f"{best_loss:.6f}")
 
-        print(f"      > {name.upper()} AE 训练完成，最终最佳损失: {best_loss:.6f}");
+        print(f"      > {name.upper()} AE training finished, final best loss: {best_loss:.6f}");
         best_model = Auto_Encoder(self.device, in_dim, 400).to(self.device)
         best_model.load_state_dict(best_model_state)
         best_model.eval()
@@ -559,29 +561,30 @@ class DynamicPreprocessor:
 
 
 # ==============================================================================
-# 3. 主预测函数 (【【【 最终精确修改版 】】】)
+# 3. Main Prediction Function
 # ==============================================================================
 def main(args):
     start_time = datetime.datetime.now()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
-    print(f"使用设备: {device}\n");
+    print(f"Using device: {device}\n");
 
-    # 检查是否同时提供了新药和新细胞系文件
+    # Check if both new drug and new cell line files are provided
     if not args.new_drug_feature_file or not args.new_exp_file:
-        print("错误：必须同时提供新药文件(--new_drug_feature_file)和新细胞系文件(--new_exp_file等)才能进行预测。")
+        print(
+            "Error: Must provide both new drug files (--new_drug_feature_file) and new cell line files (--new_exp_file etc.) to perform prediction.")
         return
 
     preprocessor = DynamicPreprocessor(args, device);
     data_cache = preprocessor.run()
 
-    print("--- 准备最终预测输入 ---")
+    print("--- Preparing final inputs for prediction ---")
     all_drug_features = data_cache['all_drug_features_fingerprints'];
     all_exp_features = torch.cat([data_cache['old_exp_ae'], data_cache['new_exp_ae']], dim=0);
     all_cn_features = torch.cat([data_cache['old_cn_ae'], data_cache['new_cn_ae']], dim=0);
-    print(f"    > 总药物数 (旧+新): {all_drug_features.shape[0]}")
-    print(f"    > 总细胞系特征数 (旧+新): {all_exp_features.shape[0]}")
+    print(f"    > Total drugs (old+new): {all_drug_features.shape[0]}")
+    print(f"    > Total cell line features (old+new): {all_exp_features.shape[0]}")
 
-    print("\n--- 加载主模型并执行预测 ---")
+    print("\n--- Loading main model and executing prediction ---")
     model = GADRP_Net(device=device).to(device);
     model.load_state_dict(torch.load(args.model_path, map_location=device));
     model.eval()
@@ -592,12 +595,11 @@ def main(args):
     all_cell_names = data_cache['train_cell_names'] + data_cache['new_cell_names']
     new_cell_names = data_cache['new_cell_names']
 
-    # ================== 核心修改在这里 ==================
-    # 只生成 "新药 vs. 新细胞系" 的预测任务
+    # Generate prediction tasks only for "new drug vs. new cell line"
     indices_to_predict = []
-    
+
     if new_drug_names and new_cell_names:
-        print("  > 正在准备 [新药 vs. 新细胞] 的预测任务...")
+        print("  > Preparing [new drug vs. new cell] prediction tasks...")
         new_drug_indices = [all_drug_names.index(name) for name in new_drug_names]
         new_cell_indices = [all_cell_names.index(name) for name in new_cell_names]
         for d_idx in new_drug_indices:
@@ -605,26 +607,27 @@ def main(args):
                 indices_to_predict.append([d_idx, c_idx])
 
     if not indices_to_predict:
-        print("\n没有需要执行的 [新药 vs. 新细胞] 预测任务。请确保输入的新药和新细胞系文件非空。")
+        print(
+            "\nNo [new drug vs. new cell] prediction tasks to perform. Please ensure input new drug and cell line files are not empty.")
         return
 
-    # 去重并转换为tensor
-    # 【【【注意】】】这里的 all_indices_to_select 就是唯一需要模型计算的部分
+    # Deduplicate and convert to tensor
+    # Note: all_indices_to_select contains the unique pairs the model needs to compute
     indices_df = pd.DataFrame(indices_to_predict, columns=['drug_idx', 'cell_idx']).drop_duplicates()
     all_indices_to_select = torch.tensor(indices_df.values, device=device, dtype=torch.long)
-    print(f"  > 总共需要模型计算 {len(all_indices_to_select)} 个独特的 [新药-新细胞] 对。")
+    print(f"  > Total unique [new drug-new cell] pairs for the model to compute: {len(all_indices_to_select)}")
 
-    # 为16GB显存设置优化的批大小
+    # Set an optimized batch size for 16GB VRAM
     batch_size = 65536
     all_predictions = []
 
-    prediction_iterator = tqdm(range(0, len(all_indices_to_select), batch_size), desc="分批预测中")
+    prediction_iterator = tqdm(range(0, len(all_indices_to_select), batch_size), desc="Batch-predicting")
 
     with torch.no_grad():
         for i in prediction_iterator:
             batch_indices = all_indices_to_select[i: i + batch_size]
 
-            # 模型只会计算 batch_indices 中指定的配对
+            # The model will only compute for the pairs specified in batch_indices
             batch_predictions = model(drug_feature_input=all_drug_features,
                                       cell_feature1_input=all_cn_features,
                                       cell_feature2_input=all_exp_features,
@@ -635,10 +638,10 @@ def main(args):
 
     predictions = torch.cat(all_predictions, dim=0)
 
-    print("\n--- 保存预测结果 ---")
+    print("\n--- Saving prediction results ---")
     scaled_predictions = predictions.numpy().flatten()
 
-    # 【【【注意】】】这里的索引直接对应了我们请求预测的索引，所以结果也是精确的
+    # Note: These indices directly correspond to the requested prediction indices, so the results are precise
     predicted_drug_indices = all_indices_to_select[:, 0].cpu().numpy()
     predicted_cell_indices = all_indices_to_select[:, 1].cpu().numpy()
 
@@ -651,33 +654,34 @@ def main(args):
     min_ic50, max_ic50 = data_cache.get('min_ic50'), data_cache.get('max_ic50')
     if min_ic50 is not None and max_ic50 is not None:
         result_df['Predicted_IC50'] = result_df['Predicted_Sensitivity_Scaled'] * (max_ic50 - min_ic50) + min_ic50
-        print("    > 已将预测值反向缩放为IC50。")
+        print("    > Inverse-scaled predicted values back to IC50.")
 
     result_df.to_csv(args.output_file, index=False);
     end_time = datetime.datetime.now()
-    print(f"\n预测完成！结果已保存到: {args.output_file}")
-    print(f"总耗时: {end_time - start_time}")
+    print(f"\nPrediction complete! Results saved to: {args.output_file}")
+    print(f"Total time taken: {end_time - start_time}")
 
 
 # ==============================================================================
-# 4. 主程序入口 (已修正笔误)
+# 4. Main Program Entry Point
 # ==============================================================================
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="GADRP全功能预测脚本 (动态AE训练, 支持新药/新细胞)。")
+    parser = argparse.ArgumentParser(
+        description="GADRP full-featured prediction script (dynamic AE training, new drug/cell support).")
 
-    # --- 输入: 新数据 (可选) ---
+    # --- Inputs: New Data (Optional) ---
     parser.add_argument('--new_drug_feature_file', type=str, default='./depmap/drug_with_conditions_predict.csv',
-                        help='新药特征文件路径 (可选)')
+                        help='Path to the new drug feature file (optional)')
     parser.add_argument('--new_exp_file', type=str, default='./depmap/gene_depmap.csv',
-                        help='新细胞系基因表达谱文件路径 (可选, 需与下面3个文件同时提供)')
+                        help='Path to the gene expression file for new cell lines (optional, must be provided with the next 3 files)')
     parser.add_argument('--new_cn_file', type=str, default='./depmap/cnv_depmap.csv',
-                        help='新细胞系拷贝数变异文件路径 (可选)')
+                        help='Path to the copy number variation file for new cell lines (optional)')
     parser.add_argument('--new_meth_file', type=str, default='./depmap/mu_depmap.csv',
-                        help='新细胞系甲基化文件路径 (可选)')
+                        help='Path to the methylation file for new cell lines (optional)')
     parser.add_argument('--new_mirna_file', type=str, default='./depmap/mi_depmap.csv',
-                        help='新细胞系microRNA表达谱文件路径 (可选)')
+                        help='Path to the microRNA expression file for new cell lines (optional)')
 
-    # --- 输入: 训练时用的所有原始数据 (必需) ---
+    # --- Inputs: All Raw Data Used for Training (Required) ---
     parser.add_argument('--cell_index_file', type=str, default='./mydata/cell_line/cell_index.csv')
     parser.add_argument('--train_exp_file', type=str, default='./mydata/cell_line/exp_process.csv')
     parser.add_argument('--train_cn_file', type=str, default='./mydata/cell_line/cn_process.csv')
@@ -687,14 +691,14 @@ if __name__ == '__main__':
     parser.add_argument('--all_drugs_feature_file', type=str, default='./mydata/drug/drug_with_conditions.csv')
     parser.add_argument('--drug_response_file', type=str, default='./mydata/pair/drug_response.csv')
 
-    # --- 输入: 预训练主模型 (必需) ---
+    # --- Inputs: Pre-trained Main Model (Required) ---
     parser.add_argument('--model_path', type=str, default='./model/saved_models/best_model_drug_blind_fold2.pth',
-                        help='预训练的GADRP_Net主模型路径 (必需)')
+                        help='Path to the pre-trained GADRP_Net main model (required)')
 
-    # --- 动态AE训练参数 ---
-    parser.add_argument('--ae_epochs', type=int, default=2500, help="动态训练AE的轮数。")
+    # --- Dynamic AE Training Parameters ---
+    parser.add_argument('--ae_epochs', type=int, default=2500, help="Number of epochs for dynamic AE training.")
 
-    # --- 输出 ---
+    # --- Output ---
     parser.add_argument('--output_file', type=str, default='./predictions/GADRP_predictions.csv')
 
     args = parser.parse_args()
