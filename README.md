@@ -1,166 +1,181 @@
-# DRP
-# Integrated Drug Response Prediction Pipeline (DRP-NF)
+# DRP Ensemble Prediction Pipeline
 
-This repository contains a powerful and flexible Nextflow pipeline designed to run a suite of state-of-the-art drug response prediction (DRP) models. It allows users to run individual models or combine their predictions using an integrated Voter module to achieve a robust, ensembled result.
+This repository hosts a powerful and flexible Nextflow pipeline for Drug Response Prediction (DRP). It integrates over 15 state-of-the-art models, allowing users to either run them individually or execute a complete, sequential workflow that culminates in a robust ensemble prediction.
 
 ## Table of Contents
 - [Overview](#overview)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
-- [Installation & Setup](#installation--setup)
-- [Usage](#usage)
-  - [Running Individual Model Workflows](#running-individual-model-workflows)
-  - [Running the Voter Module](#running-the-voter-module)
+- [Getting Started](#getting-started)
+  - [Method 1: Full Ensemble Workflow (Recommended)](#method-1-full-ensemble-workflow-recommended)
+  - [Method 2: Modular Execution (Advanced)](#method-2-modular-execution-advanced)
 - [Workflow Parameters](#workflow-parameters)
-  - [Global Parameters](#global-parameters)
-  - [Voter Parameters](#voter-parameters)
-- [Workflow Structure](#workflow-structure)
+  - [Workflow Control](#workflow-control)
+  - [GPU Allocation](#gpu-allocation)
+  - [Core Input Files](#core-input-files)
+  - [Ensemble Voter Parameters](#ensemble-voter-parameters)
+- [Project Structure](#project-structure)
 - [Example Commands](#example-commands)
 
 ## Overview
 
-Predicting the response of cancer cell lines to various drugs is a critical task in computational biology and personalized medicine. This pipeline orchestrates the execution of multiple DRP models, handling their unique dependencies and environments. The final predictions from each model can be aggregated by a `Voter` module, which generates a consensus prediction based on the outputs of the selected models.
+Predicting the response of cancer cell lines to various drugs is a critical task in computational biology. This pipeline orchestrates the execution of multiple DRP models, handling their unique dependencies and computational requirements. It offers two main modes of operation: a one-click script (`run_ensemble.sh`) for a full, sequential analysis, and a modular approach for running specific models or groups on demand. The final predictions from each model can be aggregated by a `Voter` module to generate a consensus result.
 
 ## Features
 
-- **Modular Design**: Each DRP model or group of models is encapsulated in its own Nextflow sub-workflow.
-- **Flexible Execution**: Run a single model, a group of models, or just the final voting mechanism.
-- **Integrated Voter**: A powerful module to create an ensemble prediction from the results of individual models.
-- **Parameter Control**: Easily enable or disable models for the Voter and configure global paths and settings.
-- **Reproducibility**: Leverages Nextflow's capabilities for creating reproducible and scalable computational workflows.
+-   **One-Click Ensemble Script**: Includes `run_ensemble.sh` to automate the entire process: run all models sequentially and then generate the final ensemble prediction.
+-   **Granular GPU Allocation**: Assign distinct GPU IDs to different model groups to optimize resource usage on multi-GPU systems.
+-   **Modular Design**: Each DRP model or group is encapsulated in its own Nextflow sub-workflow, enabling flexible execution.
+-   **Integrated Voter**: A powerful module to create an ensemble prediction from the results of individual models.
+-   **Reproducibility & Scalability**: Leverages Nextflow's capabilities to create reproducible, scalable, and fault-tolerant computational workflows.
+-   **Test Data Included**: Comes with a sample dataset for immediate, out-of-the-box testing.
 
 ## Prerequisites
 
-- **Nextflow**: The pipeline is built on Nextflow. Ensure you have it installed.
-  ```bash
-  curl -s https://get.nextflow.io | bash
-  ```
-- **Conda / Mamba**: The pipeline relies on Conda (or preferably Mamba for faster environment creation) to manage software dependencies for each model.
-- **Docker / Singularity (Optional)**: For enhanced portability and reproducibility, you can configure Nextflow to use container engines.
-- **GPU (Recommended)**: Many of the deep learning models are computationally intensive and will run significantly faster on a machine with a GPU.
+-   **Nextflow**: The pipeline is built on Nextflow (v21.10.x or later recommended).
+    ```bash
+    curl -s https://get.nextflow.io | bash
+    # Move the 'nextflow' executable to a directory in your $PATH
+    ```
+-   **NVIDIA GPU**: The deep learning models are computationally intensive and require an NVIDIA GPU with appropriate CUDA drivers installed.
+-   **Bash Environment**: A standard Bash shell is required to use the `run_ensemble.sh` script.
 
-## Installation & Setup
+## Getting Started
 
-1. **Clone the repository:**
-   ```bash
-   git clone <your-repository-url>
-   cd <repository-name>
-   ```
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd <repository-name>
+    ```
 
-2. **Prepare Input Data:**
-   Place your test data (e.g., SMILES, gene expression, CNV files) into the directory specified by the `params.test_dir` parameter (default: `./test`).
+2.  **Make the script executable:**
+    ```bash
+    chmod +x run_ensemble.sh
+    ```
 
-3. **Check Local Python Wheels (if applicable):**
-   Some processes might rely on local Python wheels for specific package versions. Ensure these are present in the directories specified by `params.local_wheels_cp37` and `params.local_wheels_cp38`.
+### Method 1: Full Ensemble Workflow (Recommended)
 
-## Usage
+This is the simplest way to get a complete result. The `run_ensemble.sh` script runs all model workflows in order and saves all results to a unique, timestamped directory.
 
-The main entry point for the pipeline is the `main.nf` script. The execution flow is controlled by the `--entry` parameter, which determines which part of the workflow to run.
+-   **Run with the built-in test data:**
+    ```bash
+    ./run_ensemble.sh
+    ```
 
-### Running Individual Model Workflows
+-   **Run with your own data and custom GPU allocation:**
+    You can pass any Nextflow parameter directly to the script. These will be automatically forwarded to all underlying pipeline runs.
+    ```bash
+    ./run_ensemble.sh --gene_exp_file /path/to/exp.csv \
+                      --mutation_file /path/to/mut.csv \
+                      --gpu_part1 0 --gpu_deepcdr 1
+    ```
+    All results will be stored in a new directory, e.g., `ensemble_results_20231027_153000/`.
 
-To run a specific model or a predefined group of models, use the `--entry` flag followed by the workflow's name.
+### Method 2: Modular Execution (Advanced)
 
-- **Run the `part1` workflow:**
-  This workflow likely contains a group of models such as BANDRP, GADRP, GPDRP, etc.
-  ```bash
-  ./nextflow run main.nf --entry part1
-  ```
+If you only want to run a specific model or the voter, call `main.nf` directly with the `--entry` flag. Results will be saved to the directory specified by `--output_dir` (default: `./results`).
 
-- **Run the `DeepAEG` workflow:**
-  ```bash
-  ./nextflow run main.nf --entry deepaeg
-  ```
+-   **Run the `part1` model group:**
+    ```bash
+    nextflow run main.nf --entry part1 --gpu_part1 0
+    ```
 
-- **Run the `DeepCDR` workflow:**
-  ```bash
-  ./nextflow run main.nf --entry deepcdr
-  ```
+-   **Run the `DeepCDR` workflow:**
+    ```bash
+    nextflow run main.nf --entry deepcdr --gpu_deepcdr 1
+    ```
 
-- **Run the `DIPK-GraphDRP` workflow:**
-  ```bash
-  ./nextflow run main.nf --entry dipk_graphdrp
-  ```
-
-After each successful run, the prediction results will be saved as `*_predictions.csv` files in the results directory (default: `./results`).
-
-### Running the Voter Module
-
-The `Voter` module aggregates the prediction files generated by the individual model runs. **It should be run after one or more model workflows have completed.**
-
-```bash
-./nextflow run main.nf --entry voter
-```
-
-The Voter will:
-1. Scan the results directory (`params.results_dir`) for all `*_predictions*.csv` files.
-2. Combine them based on the Voter parameters (see below).
-3. Generate a final consensus prediction file in the results directory.
+-   **Run the Voter on existing results:**
+    This should be run after one or more model workflows have completed and their `*_predictions.csv` files are present in the output directory.
+    ```bash
+    nextflow run main.nf --entry voter --output_dir ./ensemble_results_20231027_153000
+    ```
 
 ## Workflow Parameters
 
-Parameters can be specified on the command line (e.g., `--gpu_id 1`) or in a `nextflow.config` file.
+Parameters can be specified on the command line (e.g., `--gpu_part1 1`).
 
-### Global Parameters
+### Workflow Control
 
-| Parameter               | Description                                                                 | Default                                 |
-|-------------------------|-----------------------------------------------------------------------------|-----------------------------------------|
-| `entry`                 | **Required**. Specifies the workflow to run.                                | `''`                                    |
-| `gpu_id`                | The ID of the GPU to use for computations.                                  | `0`                                     |
-| `test_dir`              | Path to the directory containing input test data.                           | `${projectDir}/test`                    |
-| `results_dir`           | Path to the directory where prediction results will be saved.               | `${projectDir}/results`                 |
-| `local_wheels_cp37`     | Path to local Python 3.7 wheels.                                            | `${projectDir}/local_wheels/cp37`       |
-| `local_wheels_cp38`     | Path to local Python 3.8 wheels.                                            | `${projectDir}/local_wheels/cp38`       |
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `entry` | **Required for modular runs**. Specifies the workflow to run. Options: `part1`, `deepaeg`, `deepcdr`, `dipk_graphdrp`, `voter`. | `''` |
+| `output_dir` | The root directory where all prediction results will be saved. | `${projectDir}/results` |
 
-### Voter Parameters
+### GPU Allocation
 
-These parameters control which models are included in the final ensemble vote. Set a parameter to `1` to include the model's predictions, or `0` to exclude them.
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `gpu_part1` | GPU ID for the `part1` model group (BANDRP, DeepTTA, etc.). | `0` |
+| `gpu_deepaeg` | GPU ID for the `DeepAEG` model. | `0` |
+| `gpu_deepcdr` | GPU ID for the `DeepCDR` model. | `0` |
+| `gpu_dipk_graphdrp` | GPU ID for the `DIPK` & `GraphDRP` model group. | `0` |
 
-| Parameter                | Default |
-|--------------------------|---------|
-| `predict_lnic50`         | `0`     |
-| `BANDRP`                 | `1`     |
-| `DeepAEG`                | `1`     |
-| `DeepCDR`                | `1`     |
-| `DeepTTA`                | `1`     |
-| `DIPK`                   | `1`     |
-| `GADRP`                  | `1`     |
-| `GPDRP_GAT`              | `1`     |
-| `GPDRP_GCN`              | `1`     |
-| `GPDRP_GIN`              | `1`     |
-| `GPDRP_GINTransformer`   | `1`     |
-| `GraphDRP_GATNet`        | `1`     |
-| `GraphDRP_GAT_GCN`       | `1`     |
-| `GraphDRP_GCNNet`        | `1`     |
-| `GraphDRP_GINConvNet`    | `1`     |
-| `NERD`                   | `1`     |
-| `paccmann`               | `1`     |
-| `Precily`                | `1`     |
+### Core Input Files
 
+| Parameter | Description | Default (points to test data) |
+| :--- | :--- | :--- |
+| `drug_smiles` | CSV file with drug SMILES strings. | `${projectDir}/test/drug_sample.csv` |
+| `gene_exp_file` | Gene expression data file. | `${projectDir}/test/gene_sample.csv` |
+| `mutation_file` | Gene mutation data file. | `${projectDir}/test/mu_sample.csv` |
+| `cnv_file` | Copy Number Variation (CNV) data file. | `${projectDir}/test/cnv_sample.csv` |
+| `all_in_one_deepaeg`| Integrated multi-omics file for DeepAEG. | `${projectDir}/test/al_sample.csv` |
+| `microrna_file` | MicroRNA expression data file. | `${projectDir}/test/mi_sample.csv` |
+| `gsva_file` | GSVA analysis results file. | `${projectDir}/test/gsva_sample.csv` |
+| `drug_features_file`| Drug features file for GADRP and NeRD. | `${projectDir}/test/drug_with_conditions.csv` |
+| `cell_file_graphdrp`| Cell line features file for GraphDRP. | `${projectDir}/test/mu_sample.csv` |
 
-## Workflow Structure
+### Ensemble Voter Parameters
 
-The `main.nf` script acts as a central router. Based on the `--entry` parameter, it calls the appropriate sub-workflow defined in the `./workflows/` directory.
+These flags (`1`=enable, `0`=disable) control which models are included in the final vote.
 
-- `workflows/nf_part1.nf`: Executes the "part 1" models.
-- `workflows/nf_DeepAEG.nf`: Executes the DeepAEG model.
-- `workflows/nf_deepcdr.nf`: Executes the DeepCDR model.
-- `workflows/nf_DIPK-GraphDRP.nf`: Executes DIPK and GraphDRP models.
-- `workflows/voter.nf`: Executes the final voting/ensemble process.
+| Parameter | Default | Parameter | Default |
+| :--- | :--- | :--- | :--- |
+| `predict_lnic50` | `0` | `GPDRP_GIN` | `1` |
+| `BANDRP` | `1` | `GPDRP_GINTransformer` | `1` |
+| `DeepAEG` | `1` | `GraphDRP_GATNet` | `1` |
+| `DeepCDR` | `1` | `GraphDRP_GAT_GCN` | `1` |
+| `DeepTTA` | `1` | `GraphDRP_GCNNet` | `1` |
+| `DIPK` | `1` | `GraphDRP_GINConvNet` | `1` |
+| `GADRP` | `1` | `NERD` | `1` |
+| `GPDRP_GAT` | `1` | `paccmann` | `1` |
+| `GPDRP_GCN` | `1` | `Precily` | `1` |
+
+## Project Structure
+```
+.
+├── main.nf                 # Main Nextflow routing script
+├── run_ensemble.sh         # One-click script for the full sequential workflow
+├── nextflow.config         # (Optional) Nextflow configuration file
+├── workflows/              # Directory for all sub-workflows
+│   ├── nf_part1.nf
+│   ├── nf_DeepAEG.nf
+│   ├── nf_deepcdr.nf
+│   ├── nf_DIPK-GraphDRP.nf
+│   └── voter.nf
+├── test/                   # Sample input data for testing
+└── local_wheels/           # Local Python .whl packages
+```
 
 ## Example Commands
 
-**1. Run the `part1` model group on GPU 1:**
+**1. Run the full ensemble workflow using custom data and multiple GPUs:**
 ```bash
-./nextflow run main.nf --entry part1 --gpu_id 1
+./run_ensemble.sh --drug_smiles /data/drugs.csv \
+                  --gene_exp_file /data/expression.csv \
+                  --gpu_part1 0 \
+                  --gpu_deepcdr 1 \
+                  --gpu_dipk_graphdrp 2
 ```
 
-**2. Run the `DeepAEG` model and save results to a custom directory:**
+**2. Run only the `DIPK-GraphDRP` workflow on GPU 3:**
 ```bash
-./nextflow run main.nf --entry deepaeg --results_dir ./my_deepaeg_results
+nextflow run main.nf --entry dipk_graphdrp --gpu_dipk_graphdrp 3
 ```
 
-**3. After running several models, run the Voter but exclude `DeepTTA` and `paccmann` from the ensemble:**
+**3. Run the Voter on a specific results directory, excluding `DeepTTA` from the ensemble:**
 ```bash
-./nextflow run main.nf --entry voter --DeepTTA 0 --paccmann 0
+nextflow run main.nf --entry voter \
+                     --output_dir ./ensemble_results_20231027_153000 \
+                     --DeepTTA 0
 ```
