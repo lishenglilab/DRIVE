@@ -3,33 +3,52 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    VOTER SUB-WORKFLOW (V5)
+    Ensemble Analysis Sub-workflow (V6)
+    - Replaces the old voter with the new, more powerful run_ensemble.py script.
 ========================================================================================
 */
 
-process run_voter {
-    tag "Ensemble Voting"
+workflow run_ensemble {
+    take:
+        prediction_files // A channel containing all generated prediction CSVs
+        output_dir       // The main output directory
+        model_pkl_file   // Path to the .pkl file for Mode 0
+        weight_csv_file  // Path to the weight.csv file for Mode 1
+
+    main:
+        run_ensemble_analysis(
+            prediction_files,
+            output_dir,
+            model_pkl_file,
+            weight_csv_file
+        )
+}
+
+process run_ensemble_analysis {
+    tag "Ensemble Analysis"
 
     input:
-    val done_signal
+    path prediction_files // Ensures this process runs after predictions are made
     val output_dir
-    val voter_params
+    path model_pkl
+    path weight_csv
 
     script:
-    def voter_args = voter_params.collect { key, value -> "--${key} ${value}" }.join(' ')
     """
-    echo "--- All prediction tasks completed. Starting the voter process. ---"
+    echo "--- All prediction tasks completed. Starting ensemble analysis. ---"
+
+    # The run_ensemble.py script expects all input CSVs, pkl, and weight files
+    # to be in its current working directory. Nextflow stages them here automatically.
     
-    # 切换到结果目录
-    cd ${output_dir}
+    echo "--- [1/2] Running Mode 0: ML Model Prediction ---"
+    python ${projectDir}/scripts/run_ensemble.py --mode 0 --model_pkl ${model_pkl}
 
-    echo "Running voter with the following arguments:"
-    # 假设voter.py位于项目的某个固定位置，例如 {projectDir}/scripts/
-    # 如果voter.py就在工作目录，可以直接运行 python voter.py
-    echo "python ${projectDir}/scripts/voter.py ${voter_args}"
+    echo "--- [2/2] Running Mode 1: Weighted Average Reports ---"
+    python ${projectDir}/scripts/run_ensemble.py --mode 1 --weight_file ${weight_csv} --top_n 30
 
-    python ${projectDir}/scripts/voter.py ${voter_args}
-
-    echo "--- Voter process finished. ---"
+    echo "--- Ensemble analysis finished. Moving results to main output directory. ---"
+    
+    # Move the generated output directory into the main results folder
+    mv ./ensemble_outputs/* ${output_dir}/
     """
 }
