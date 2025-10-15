@@ -8,6 +8,9 @@ from functools import reduce
 import warnings
 import codecs
 import re
+# 【【【 新增/修改 】】】: 导入多进程和笛卡尔积工具
+from multiprocessing import Pool, cpu_count
+from itertools import product
 
 # --- 导入 RDKit 和指纹相关库 ---
 try:
@@ -32,29 +35,54 @@ except ImportError as e:
     print("请确保 config.py, model.py, 和 BAN.py 文件与此脚本位于同一目录，或在Python可搜索的路径中。")
     exit(1)
 
+# 为多进程工作者定义初始化函数
+_fp_generator = None
+
+def _init_worker(vocab_path, subword_map_path):
+    """初始化每个工作进程，创建自己的指纹生成器实例。"""
+    global _fp_generator
+    # 在子进程中静默创建实例
+    _fp_generator = DrugFingerprintGenerator(vocab_path=vocab_path, subword_map_path=subword_map_path, verbose=False)
+
+def _process_drug_row(drug_info_tuple):
+    """工作进程调用的函数，处理单个药物。"""
+    global _fp_generator
+    drug_name, smiles = drug_info_tuple
+    fingerprints, success = _fp_generator.generate_all_fingerprints(smiles)
+    return drug_name, smiles, fingerprints, success
+
 
 # ==============================================================================
-# 模块 1: 药物指纹生成器 (【【【 已修改，增加崩溃防护 】】】)
+# 模块 1: 药物指纹生成器 (【【【 新增/修改 】】】: 保存路径)
 # ==============================================================================
 class DrugFingerprintGenerator:
     """封装 Morgan, PubChem, 和 ESPF 指纹生成逻辑。"""
     def __init__(self, vocab_path='./pre_process/drug_codes_chembl_freq_1500.txt',
-                 subword_map_path='./pre_process/subword_units_map_chembl_freq_1500.csv'):
-        print("\n--- 步骤 1: 正在初始化药物指纹生成器 ---")
+                 subword_map_path='./pre_process/subword_units_map_chembl_freq_1500.csv', verbose=True):
+        
+        # 【【【 修正点 1: 保存路径为实例属性 】】】
+        self.vocab_path = vocab_path
+        self.subword_map_path = subword_map_path
+        
+        if verbose:
+            print("\n--- 步骤 1: 正在初始化药物指纹生成器 ---")
         try:
-            bpe_codes_drug = codecs.open(vocab_path, 'r', 'utf-8')
+            bpe_codes_drug = codecs.open(self.vocab_path, 'r', 'utf-8')
             self.dbpe = BPE(bpe_codes_drug, merges=-1, separator='')
-            sub_csv = pd.read_csv(subword_map_path)
+            sub_csv = pd.read_csv(self.subword_map_path)
             self.idx2word_d = sub_csv['index'].values
             self.words2idx_d = dict(zip(self.idx2word_d, range(0, len(self.idx2word_d))))
             self.morgan_dim = 2048
             self.pubchem_dim = 881
             self.espf_dim = len(self.idx2word_d)
-            print(f"  - ESPF生成器初始化成功 (词汇表大小: {self.espf_dim})")
-            print(f"  - 指纹维度: Morgan={self.morgan_dim}, PubChem={self.pubchem_dim}, ESPF={self.espf_dim}")
+            if verbose:
+                print(f"  - ESPF生成器初始化成功 (词汇表大小: {self.espf_dim})")
+                print(f"  - 指纹维度: Morgan={self.morgan_dim}, PubChem={self.pubchem_dim}, ESPF={self.espf_dim}")
         except FileNotFoundError as e:
-            print(f"致命错误：初始化指纹生成器失败，文件未找到: {e}")
-            exit(1)
+            if verbose:
+                print(f"致命错误：初始化指纹生成器失败，文件未找到: {e}")
+            # 向上抛出异常，让主进程处理
+            raise e
 
     def smiles_to_espf(self, smiles):
         try:
@@ -82,15 +110,10 @@ class DrugFingerprintGenerator:
         except Exception:
             return np.zeros(self.pubchem_dim, dtype=np.float32)
 
-    # --- 【【【 核心修改点 】】】 ---
     def generate_all_fingerprints(self, smiles):
-        """
-        生成所有指纹，并包含一个顶级的异常捕获块来防止程序崩溃。
-        """
         try:
             mol = Chem.MolFromSmiles(smiles)
             if mol is None:
-                # 这种情况是合法的SMILES解析失败，不算崩溃
                 zeros_morgan = np.zeros(self.morgan_dim, dtype=np.float32)
                 zeros_pubchem = np.zeros(self.pubchem_dim, dtype=np.float32)
                 zeros_espf = np.zeros(self.espf_dim, dtype=np.float32)
@@ -102,10 +125,6 @@ class DrugFingerprintGenerator:
             return (morgan_fp, pubchem_fp, espf_fp), True
 
         except Exception as e:
-            # 捕获所有其他异常，包括可能由RDKit底层引起的错误
-            # 虽然不能直接捕获Segmentation Fault，但这能捕获其前兆或相关Python层面的错误
-            # 这是一个防御性措施，旨在提高程序的鲁棒性
-            print(f"\n[严重警告] 处理SMILES时发生严重错误: '{smiles[:100]}...'. 错误: {e}. 将跳过此药物。")
             zeros_morgan = np.zeros(self.morgan_dim, dtype=np.float32)
             zeros_pubchem = np.zeros(self.pubchem_dim, dtype=np.float32)
             zeros_espf = np.zeros(self.espf_dim, dtype=np.float32)
@@ -160,35 +179,35 @@ def load_and_align_multiple_cell_features(cfg, new_exp_path, new_mut_path, new_c
 
 
 # ==============================================================================
-# 模块 3: 核心预测函数 (无变化)
+# 模块 3: 核心预测函数 (【【【 新增/修改 】】】: 修正获取路径的方式)
 # ==============================================================================
 def predict_drug_chunk(model, device, cell_data_tuple, drug_chunk_df, fp_generator,
-                       small_batch_size, output_csv_base_path):
+                       drug_batch_size, cell_batch_size, num_workers, output_csv_base_path):
     model.eval()
     exp_df, mut_df, cnv_df = cell_data_tuple
     cell_lines_to_predict = exp_df.index.tolist()
 
-    print("\n--- 步骤 4a: 正在为当前大块的药物计算指纹并验证SMILES... ---")
+    # --- 步骤 4a: 使用多进程并行计算指纹 ---
+    print(f"\n--- 步骤 4a: 使用 {num_workers} 个CPU核心并行计算指纹...")
     drug_fingerprints_cache = {}
     valid_drugs_for_prediction = []
     unprocessed_drugs = []
+    
+    drug_info_list = [(row['DrugName'], str(row['SMILES'])) for _, row in drug_chunk_df.iterrows()]
 
-    for _, row in tqdm(drug_chunk_df.iterrows(), total=len(drug_chunk_df), desc="验证SMILES并计算指纹"):
-        drug_name = row['DrugName']
-        smiles = str(row['SMILES'])
-        (morgan_fp, pubchem_fp, espf_fp), success = fp_generator.generate_all_fingerprints(smiles)
+    # 【【【 修正点 2: 从实例属性获取路径，而不是推断 】】】
+    vocab_path = fp_generator.vocab_path
+    subword_map_path = fp_generator.subword_map_path
+
+    with Pool(processes=num_workers, initializer=_init_worker, initargs=(vocab_path, subword_map_path)) as pool:
+        results_iterator = pool.imap_unordered(_process_drug_row, drug_info_list)
         
-        reason = 'SMILES无效或无法解析'
-        if not success:
-            # 检查是否是由于严重错误被捕获
-            if "严重警告" in locals().get('__warningregistry__', {}):
-                 reason = '处理时发生严重错误 (可能导致崩溃)'
-
-            unprocessed_drugs.append({'DrugName': drug_name, 'SMILES': smiles, 'Reason': reason})
-            continue
-
-        drug_fingerprints_cache[drug_name] = [morgan_fp, espf_fp, pubchem_fp]
-        valid_drugs_for_prediction.append({'DrugName': drug_name})
+        for drug_name, smiles, (morgan_fp, pubchem_fp, espf_fp), success in tqdm(results_iterator, total=len(drug_info_list), desc="计算药物指纹"):
+            if success:
+                drug_fingerprints_cache[drug_name] = [morgan_fp, espf_fp, pubchem_fp]
+                valid_drugs_for_prediction.append({'DrugName': drug_name})
+            else:
+                unprocessed_drugs.append({'DrugName': drug_name, 'SMILES': smiles, 'Reason': 'SMILES无效或处理失败'})
 
     if unprocessed_drugs:
         try:
@@ -205,49 +224,61 @@ def predict_drug_chunk(model, device, cell_data_tuple, drug_chunk_df, fp_generat
         return None
 
     num_valid_drugs = len(valid_drugs_for_prediction)
-    print(f"  - 指纹验证完成！将对当前大块的 {num_valid_drugs} 种有效药物进行预测。")
+    print(f"  - 指纹计算完成！将对当前大块的 {num_valid_drugs} 种有效药物进行预测。")
 
-    print(f"\n--- 步骤 4b: 开始小批量预测，每个小批量 {small_batch_size} 种药物 ---")
+    # --- 步骤 4b: 药物和细胞系双重分块预测 ---
+    print(f"\n--- 步骤 4b: 开始双重批量预测 (药物批大小: {drug_batch_size}, 细胞批大小: {cell_batch_size}) ---")
     
-    num_batches = (num_valid_drugs + small_batch_size - 1) // small_batch_size
-    batch_iterator = tqdm(range(0, num_valid_drugs, small_batch_size), total=num_batches, desc="处理药物小批量")
-
     all_results_for_chunk = []
+    
+    cell_data_cache = {
+        name: [
+            exp_df.loc[name].values.astype(np.float32),
+            mut_df.loc[name].values.astype(np.float32),
+            cnv_df.loc[name].values.astype(np.float32)
+        ] for name in cell_lines_to_predict
+    }
+    
+    num_drug_batches = (num_valid_drugs + drug_batch_size - 1) // drug_batch_size
+    
+    with torch.no_grad():
+        for i in tqdm(range(0, num_valid_drugs, drug_batch_size), total=num_drug_batches, desc="处理药物批次"):
+            drug_batch_info = valid_drugs_for_prediction[i : i + drug_batch_size]
+            drug_names_in_batch = [info['DrugName'] for info in drug_batch_info]
+            
+            drug_fp_batches = [[], [], []]
+            for name in drug_names_in_batch:
+                fps = drug_fingerprints_cache[name]
+                for j in range(3):
+                    drug_fp_batches[j].append(fps[j])
+            
+            drug_fp_tensors = [torch.tensor(np.array(batch)).to(device).float() for batch in drug_fp_batches]
+            
+            for j in range(0, len(cell_lines_to_predict), cell_batch_size):
+                cell_names_in_batch = cell_lines_to_predict[j : j + cell_batch_size]
+                
+                cell_data_batches = [[], [], []]
+                for name in cell_names_in_batch:
+                    omics = cell_data_cache[name]
+                    for k in range(3):
+                        cell_data_batches[k].append(omics[k])
 
-    for i in batch_iterator:
-        start_idx = i
-        end_idx = min(i + small_batch_size, num_valid_drugs)
-        current_drug_batch_info = valid_drugs_for_prediction[start_idx:end_idx]
+                cell_data_tensors = [torch.tensor(np.array(batch)).to(device).float() for batch in cell_data_batches]
 
-        drug_fp_batches = [[], [], []]
-        drug_names_in_order = []
-        for drug_info in current_drug_batch_info:
-            drug_name = drug_info['DrugName']
-            drug_names_in_order.append(drug_name)
-            fps = drug_fingerprints_cache[drug_name]
-            for j in range(3):
-                drug_fp_batches[j].append(fps[j])
-
-        drug_fp_tensors = [torch.tensor(np.array(batch)).to(device).float() for batch in drug_fp_batches]
-        num_drugs_in_batch = len(drug_names_in_order)
-
-        with torch.no_grad():
-            for cell_name in cell_lines_to_predict:
-                exp_vec = exp_df.loc[cell_name].values.astype(np.float32)
-                mut_vec = mut_df.loc[cell_name].values.astype(np.float32)
-                cnv_vec = cnv_df.loc[cell_name].values.astype(np.float32)
-
-                exp_batch = torch.from_numpy(exp_vec).unsqueeze(0).repeat(num_drugs_in_batch, 1).to(device)
-                mut_batch = torch.from_numpy(mut_vec).unsqueeze(0).repeat(num_drugs_in_batch, 1).to(device)
-                cnv_batch = torch.from_numpy(cnv_vec).unsqueeze(0).repeat(num_drugs_in_batch, 1).to(device)
-                cell_data_batch = [exp_batch, mut_batch, cnv_batch]
-
-                predictions, _ = model(drug_fp_tensors, cell_data_batch)
+                num_drugs = len(drug_names_in_batch)
+                num_cells = len(cell_names_in_batch)
+                
+                expanded_drug_fps = [fp.repeat_interleave(num_cells, dim=0) for fp in drug_fp_tensors]
+                expanded_cell_data = [data.repeat(num_drugs, 1) for data in cell_data_tensors]
+                
+                predictions, _ = model(expanded_drug_fps, expanded_cell_data)
                 predictions_list = predictions.cpu().numpy().flatten().tolist()
-
+                
+                pair_labels = list(product(drug_names_in_batch, cell_names_in_batch))
+                
                 results_df = pd.DataFrame({
-                    'CellLineID': cell_name,
-                    'DrugName': drug_names_in_order,
+                    'CellLineID': [cell for _, cell in pair_labels],
+                    'DrugName': [drug for drug, _ in pair_labels],
                     'PredictedValue': predictions_list
                 })
                 all_results_for_chunk.append(results_df)
@@ -262,37 +293,40 @@ def predict_drug_chunk(model, device, cell_data_tuple, drug_chunk_df, fp_generat
 # ==============================================================================
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="【整合版 v9 - 断点续跑】使用BANDRP模型进行分块预测，支持从中断处继续。",
+        description="【整合版 v10.1 - Bug修复】使用BANDRP模型进行分块预测，支持多核CPU指纹生成和细胞系分批。",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument('--model_path', type=str, default='./github_upload/output_dir/db1/model.pt',
-                        help='预训练模型文件 (.pt) 的路径。')
-    parser.add_argument('--exp_path', type=str, default='./test/exp_1.csv',
-                        help='新细胞系的【基因表达谱】文件路径。')
-    parser.add_argument('--mut_path', type=str, default='./test/mu_1.csv',
-                        help='新细胞系的【基因突变谱】文件路径。')
-    parser.add_argument('--cnv_path', type=str, default='./test/cnv_1.csv',
-                        help='新细胞系的【拷贝数变异谱】文件路径。')
-    parser.add_argument('--new_drugs_csv', type=str, default='./test/predict_all_np.csv', help='包含所有待预测药物的CSV文件路径。')
-    parser.add_argument('--output_csv', type=str, default='./predictions/prediction_results.csv',
-                        help='【输出文件基础名】。最终文件名会是 "基础名_1.csv", "基础名_2.csv" 等。')
-    parser.add_argument('--drug_chunk_size', type=int, default=100000,
-                        help='每个药物大块的大小（即每个输出文件包含约多少种药物）。')
-    parser.add_argument('--drug_batch_size', type=int, default=1000,
-                        help='GPU一次性预测的小批量药物数量。')
+    parser.add_argument('--model_path', type=str, default='./github_upload/output_dir/db1/model.pt', help='预训练模型文件 (.pt) 的路径。')
+    parser.add_argument('--exp_path', type=str, default='./CRC/gene_all.csv', help='新细胞系的【基因表达谱】文件路径。')
+    parser.add_argument('--mut_path', type=str, default='./CRC/mu_all.csv', help='新细胞系的【基因突变谱】文件路径。')
+    parser.add_argument('--cnv_path', type=str, default='./CRC/cnv_all.csv', help='新细胞系的【拷贝数变异谱】文件路径。')
+    parser.add_argument('--new_drugs_csv', type=str, default='./CRC/predict_all_np.csv', help='包含所有待预测药物的CSV文件路径。')
+    parser.add_argument('--output_csv', type=str, default='./predictions/prediction_results.csv', help='【输出文件基础名】。最终文件名会是 "基础名_1.csv", "基础名_2.csv" 等。')
+    parser.add_argument('--drug_chunk_size', type=int, default=100000, help='每个药物大块的大小（即每个输出文件包含约多少种药物）。')
+    parser.add_argument('--drug_batch_size', type=int, default=256, help='GPU一次性预测的小批量药物数量。')
     parser.add_argument('--cuda_id', type=int, default=0, help='要使用的GPU ID (-1为CPU)。')
-    parser.add_argument('--start_chunk', type=int, default=0,
-                        help='指定从哪个大块编号开始运行。设置为0或不设置，则自动检测断点。')
-    
+    parser.add_argument('--start_chunk', type=int, default=0, help='指定从哪个大块编号开始运行。设置为0或不设置，则自动检测断点。')
+    parser.add_argument('--cell_batch_size', type=int, default=32, help='GPU一次性预测的小批量细胞系数量。')
+    parser.add_argument('--num_workers', type=int, default=max(1, cpu_count() // 2), help='用于生成药物指纹的CPU核心数。')
+
     args = parser.parse_args()
 
-    # --- 主逻辑 ---
     cfg = get_cfg_defaults()
-    device = torch.device(f'cuda:{args.cuda_id}' if args.cuda_id >= 0 and torch.cuda.is_available() else 'cpu')
+    
+    if args.cuda_id >= 0 and torch.cuda.is_available():
+        device = torch.device(f'cuda:{args.cuda_id}')
+    else:
+        if args.cuda_id >= 0:
+            print(f"警告: 请求使用 CUDA:{args.cuda_id}，但CUDA不可用。将自动切换到 CPU。")
+        device = torch.device('cpu')
+        
     print(f"--- 使用设备: {device} ---")
-    print(f"--- 配置: 大块={args.drug_chunk_size}药物/文件, 小批量={args.drug_batch_size}药物/GPU预测 ---")
+    print(f"--- 配置: 大块={args.drug_chunk_size}药物/文件, 药物小批={args.drug_batch_size}, 细胞小批={args.cell_batch_size}, CPU核心={args.num_workers} ---")
 
-    fp_generator = DrugFingerprintGenerator()
+    try:
+        fp_generator = DrugFingerprintGenerator()
+    except Exception as e:
+        exit(1) # 如果主进程初始化失败，直接退出
 
     exp_df, mut_df, cnv_df, exp_dim, mut_dim, cnv_dim = load_and_align_multiple_cell_features(
         cfg, args.exp_path, args.mut_path, args.cnv_path
@@ -358,7 +392,7 @@ if __name__ == '__main__':
         
         chunk_result_df = predict_drug_chunk(
             model, device, (exp_df, mut_df, cnv_df), drug_chunk_df,
-            fp_generator, args.drug_batch_size, output_base
+            fp_generator, args.drug_batch_size, args.cell_batch_size, args.num_workers, output_base
         )
 
         if chunk_result_df is not None and not chunk_result_df.empty:
