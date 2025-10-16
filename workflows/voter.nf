@@ -3,52 +3,86 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    Ensemble Analysis Sub-workflow (V6)
-    - Replaces the old voter with the new, more powerful run_ensemble.py script.
+    Ensemble Analysis Sub-workflow (V7.0 - Aligned with updated voter.py)
+    - Removed dependency on weight_csv_file.
+    - Split analysis into two separate processes for Mode 0 and Mode 1 for clarity.
+    - Both processes use the RandomForest model predictions as their basis.
 ========================================================================================
 */
 
 workflow run_ensemble {
     take:
-        prediction_files // A channel containing all generated prediction CSVs
-        output_dir       // The main output directory
-        model_pkl_file   // Path to the .pkl file for Mode 0
-        weight_csv_file  // Path to the weight.csv file for Mode 1
+        prediction_files // Channel of all prediction CSVs
+        output_dir
+        model_pkl_file   // Path to the .pkl file
 
     main:
-        run_ensemble_analysis(
+        def voter_script = file("${projectDir}/voter.py")
+        
+        // Run Mode 0: Generate the single large prediction file
+        generate_global_predictions(
             prediction_files,
             output_dir,
             model_pkl_file,
-            weight_csv_file
+            voter_script
+        )
+
+        // Run Mode 1: Generate Top-K reports for each cell line
+        generate_top_k_reports(
+            prediction_files,
+            output_dir,
+            model_pkl_file,
+            voter_script
         )
 }
 
-process run_ensemble_analysis {
-    tag "Ensemble Analysis"
+process generate_global_predictions {
+    tag "Ensemble Mode 0: Global Predictions"
+
+    conda "${projectDir}/environments/part1_env.yml"
 
     input:
-    path prediction_files // Ensures this process runs after predictions are made
+    path prediction_files
     val output_dir
     path model_pkl
-    path weight_csv
+    path voter_script
 
     script:
     """
-    echo "--- All prediction tasks completed. Starting ensemble analysis. ---"
+    echo "--- [VOTER] Activating cached environment from Part 1 run. ---"
+    echo "--- Running Mode 0: Generating global ML-based predictions. ---"
 
-    # The run_ensemble.py script expects all input CSVs, pkl, and weight files
-    # to be in its current working directory. Nextflow stages them here automatically.
-    
-    echo "--- [1/2] Running Mode 0: ML Model Prediction ---"
-    python ${projectDir}/scripts/run_ensemble.py --mode 0 --model_pkl ${model_pkl}
+    python ${voter_script} --mode 0 --model_pkl ${model_pkl}
 
-    echo "--- [2/2] Running Mode 1: Weighted Average Reports ---"
-    python ${projectDir}/scripts/run_ensemble.py --mode 1 --weight_file ${weight_csv} --top_n 30
+    echo "--- Mode 0 finished. Moving results to main output directory. ---"
+    mv ./ensemble_outputs/ml_ensemble_predictions.csv ${output_dir}/
+    """
+}
 
-    echo "--- Ensemble analysis finished. Moving results to main output directory. ---"
-    
-    # Move the generated output directory into the main results folder
-    mv ./ensemble_outputs/* ${output_dir}/
+process generate_top_k_reports {
+    tag "Ensemble Mode 1: Top-K Reports"
+
+    conda "${projectDir}/environments/part1_env.yml"
+
+    input:
+    path prediction_files
+    val output_dir
+    path model_pkl
+    path voter_script
+
+    // 使用 params 来控制 top_k 的值，增加灵活性
+    // 可以在 nextflow.config 或命令行 (--top_k 10) 中修改
+    params.top_k = 5
+
+    script:
+    """
+    echo "--- [VOTER] Activating cached environment from Part 1 run. ---"
+    echo "--- Running Mode 1: Generating Top-${params.top_k} reports per cell line. ---"
+
+    python ${voter_script} --mode 1 --model_pkl ${model_pkl} --top_k ${params.top_k}
+
+    echo "--- Mode 1 finished. Moving results to main output directory. ---"
+    # 移动整个 reports 文件夹
+    mv ./ensemble_outputs/cell_line_reports ${output_dir}/
     """
 }
