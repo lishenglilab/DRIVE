@@ -3,8 +3,9 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    Main Routing Workflow (V7.2 - Corrected from Stable Base)
+    Main Routing Workflow (V7.3 - Aligned with updated voter.py)
     - Implements explicit dependency injection for all sub-workflows.
+    - Removed weight_file parameter as it's no longer used by the ensemble script.
 ========================================================================================
 */
 
@@ -35,7 +36,8 @@ params.local_wheels_cp38 = "${projectDir}/local_wheels/cp38"
 
 // --- Ensemble Script Inputs ---
 params.model_pkl = "${projectDir}/best_model_RandomForest_rmse.pkl"
-params.weight_file = "${projectDir}/weight.csv"
+// 【核心修复 1】: weight_file 参数已不再需要，将其注释或删除
+// params.weight_file = "${projectDir}/weight.csv"
 
 
 log.info """
@@ -69,33 +71,31 @@ workflow {
 
     if (params.entry == 'voter') {
         def prediction_files = Channel.fromPath("${params.output_dir}/*_predictions*.csv").collect()
+
+        // 【核心修复 2】: 调用 run_voter 时，不再传递 weight_file，现在只需要3个参数
         run_voter(
             prediction_files,
-            params.output_dir, // Note: The voter workflow might need this
-            file(params.model_pkl),
-            file(params.weight_file)
+            params.output_dir,
+            file(params.model_pkl)
         )
-    } 
+    }
     else if (params.entry == 'dipk_graphdrp') {
-        // --- 【【【 核心修正 1 】】】 ---
-        // Create a map of all parameters needed by the dipk_graphdrp sub-workflow
+        // --- 这部分保持你的原样，不做改动 ---
         def dipk_graphdrp_input_params = [
             drug_smiles: file(params.drug_smiles),
             gene_exp_file: file(params.gene_exp_file),
             cell_file_graphdrp: file(params.cell_file_graphdrp)
         ]
 
-        // Pass all 4 required arguments to the sub-workflow
         run_dipk_graphdrp_workflow(
-            params.gpu_dipk_graphdrp,       // 1
-            file(params.local_wheels_cp38), // 2
-            params.output_dir,              // 3
-            dipk_graphdrp_input_params      // 4 (The new map)
+            params.gpu_dipk_graphdrp,
+            file(params.local_wheels_cp38),
+            params.output_dir,
+            dipk_graphdrp_input_params
         )
-    } 
+    }
     else if (params.entry == 'part1') {
-        // --- 【【【 核心修正 2 】】】 ---
-        // Create a map of all parameters needed by the part1 sub-workflow
+        // --- 这部分保持你的原样，不做改动 ---
         def part1_input_params = [
             drug_smiles: file(params.drug_smiles),
             gene_exp_file: file(params.gene_exp_file),
@@ -104,14 +104,13 @@ workflow {
             gsva_file: file(params.gsva_file)
         ]
         
-        // Pass all 4 required arguments to the sub-workflow
         run_part1_workflow(
-            params.gpu_part1,               // 1
-            file(params.local_wheels_cp37), // 2
-            params.output_dir,              // 3
-            part1_input_params              // 4 (The new map)
+            params.gpu_part1,
+            file(params.local_wheels_cp37),
+            params.output_dir,
+            part1_input_params
         )
-    } 
+    }
     else {
         log.error """
         ERROR: No valid workflow entry point specified. Please use --entry.
