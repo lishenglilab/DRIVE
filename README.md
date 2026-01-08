@@ -1,4 +1,3 @@
-```markdown
 # DRIVE: Drug Response Integration and Voting Ensemble (v3)
 
 **DRIVE** is a comprehensive Nextflow-based computational pipeline designed for robust Drug Response Prediction (DRP). It integrates a curated ensemble of state-of-the-art deep learning models (including DIPK, GraphDRP, DeepTTC, BANDRP, etc.) to generate consensus predictions.
