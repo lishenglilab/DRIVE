@@ -1,139 +1,177 @@
-# DRP Ensemble Prediction Pipeline
+```markdown
+# DRIVE: Drug Response Integration and Voting Ensemble (v3)
 
-This repository hosts a powerful and flexible Nextflow pipeline for Drug Response Prediction (DRP). It integrates a curated set of state-of-the-art models, allowing users to either run model groups individually or execute a complete, sequential workflow that culminates in a robust ensemble prediction.
+**DRIVE** is a comprehensive Nextflow-based computational pipeline designed for robust Drug Response Prediction (DRP). It integrates a curated ensemble of state-of-the-art deep learning models (including DIPK, GraphDRP, DeepTTC, BANDRP, etc.) to generate consensus predictions.
 
-This version represents a significant update, streamlining the model set and optimizing the execution flow with Nextflow profiles.
+**Version 3** introduces significant architectural improvements, including a **Dockerized execution mode**, a **Smart Planner** for handling large-scale datasets via dynamic chunking, and refined GPU resource allocation.
 
 ## Table of Contents
 - [Overview](#overview)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-  - [Method 1: Full Ensemble Workflow (Recommended)](#method-1-full-ensemble-workflow-recommended)
-  - [Method 2: Modular Execution (Advanced)](#method-2-modular-execution-advanced)
-- [Workflow Parameters](#workflow-parameters)
-  - [Workflow Control](#workflow-control)
-  - [GPU Allocation](#gpu-allocation)
-  - [Core Input Files](#core-input-files)
-  - [Ensemble Analysis Parameters](#ensemble-analysis-parameters)
 - [Project Structure](#project-structure)
-- [Example Commands](#example-commands)
+- [Getting Started](#getting-started)
+  - [Method 1: Docker (Recommended)](#method-1-docker-execution-easiest)
+  - [Method 2: Smart Ensemble (For Large Datasets)](#method-2-smart-ensemble-workflow-for-large-scale-data)
+  - [Method 3: Local Standard Execution](#method-3-local-standard-execution)
+- [Workflow Parameters](#workflow-parameters)
+  - [GPU Allocation](#gpu-allocation)
+  - [Input Files](#input-files)
 
 ## Overview
 
-Predicting the response of cancer cell lines to various drugs is a critical task in computational biology. This pipeline orchestrates the execution of multiple DRP models, handling their unique dependencies and computational requirements. It offers two main modes of operation: a one-click script (`run_ensemble.sh`) for a full, sequential analysis, and a modular approach for running specific model groups or the final analysis on demand. The final predictions from each model are aggregated by an `Ensemble Analysis` module to generate consensus results.
+Predicting cancer cell line response to drugs is computationally intensive. DRIVE orchestrates multiple complex models, managing their specific environment dependencies (Python 3.7/3.8, PyTorch versions) and hardware resources. 
+
+The pipeline aggregates predictions from individual models using a `Voter` module (Ensemble Analysis) to produce a final, high-confidence prediction.
 
 ## Features
 
--   **One-Click Ensemble Script**: Includes `run_ensemble.sh` to automate the entire process: run all model groups sequentially and then generate the final ensemble prediction in an optimized order.
--   **Granular GPU Allocation**: Assign distinct GPU IDs to different model groups to optimize resource usage on multi-GPU systems.
--   **Modular Design**: Each DRP model group is encapsulated in its own Nextflow sub-workflow, enabling flexible execution via profiles (`part1`, `dipk_graphdrp`, `voter`).
--   **Integrated Ensemble Analysis**: A powerful module to create an ensemble prediction from the results of individual models using machine learning or weighted averaging.
--   **Reproducibility & Scalability**: Leverages Nextflow's capabilities to create reproducible, scalable, and fault-tolerant computational workflows.
--   **Test Data Included**: Comes with a sample dataset for immediate, out-of-the-box testing.
+-   **Docker Support (v3)**: A fully encapsulated container image containing all model environments, eliminating local dependency hell.
+-   **Smart Resource Planner**: The `smart_ensemble.sh` system automatically detects hardware (RAM/GPU). It chunks large datasets (e.g., 50x50 matrices for CPU-only modes or dynamic sizing for GPUs) to prevent memory overflows.
+-   **Granular GPU Control**: Assign specific models to specific GPU IDs via `main.nf`.
+-   **Automated Ensemble**: Merges predictions via a Random Forest-based voter or weighted averaging.
 
 ## Prerequisites
 
--   **Nextflow**: The pipeline is built on Nextflow (v21.10.x or later recommended).
-    ```bash
-    curl -s https://get.nextflow.io | bash
-    # Move the 'nextflow' executable to a directory in your $PATH
-    ```
--   **NVIDIA GPU**: The deep learning models are computationally intensive and require an NVIDIA GPU with appropriate CUDA drivers installed.
--   **Bash Environment**: A standard Bash shell is required to use the `run_ensemble.sh` script.
--   **Conda**: Conda is used for environment management. Nextflow will automatically create the necessary environments from the `.yml` files.
+### For Docker Mode (Recommended)
+-   **Docker Engine** installed.
+-   **NVIDIA Container Toolkit** (for GPU acceleration).
+
+### For Local Mode
+-   **Nextflow** (v21.10+).
+-   **Conda**: For environment management (auto-created from YAMLs).
+-   **NVIDIA GPU**: Required for model inference.
+
+## Project Structure
+
+```text
+DRIVE/
+├── BANDRP-main/                # Model Source Codes
+├── DeepTTC/
+├── DIPK-main/
+├── GPDRP/
+├── GraphDRP-master/
+├── paccmann_predictor-master/
+├── Precily-v1.0.0/
+├── environments/               # Conda environment YAMLs
+├── local_wheels/               # Offline Python dependencies
+├── results/                    # Default output directory
+├── test/                       # Sample datasets
+├── workflows/                  # Sub-workflow definitions (.nf)
+├── Dockerfile                  # Container definition
+├── main.nf                     # Local execution entry point
+├── main_docker.nf              # Docker execution entry point
+├── run_ensemble.sh             # Standard local run script
+├── run_ensemble_dockfile.sh    # Internal Docker entry script
+├── smart.nf                    # Resource planning workflow
+├── smart_ensemble.sh           # Smart workflow entry script
+└── voter.py                    # Ensemble aggregation logic
+```
 
 ## Getting Started
 
-1.  **Clone the repository:**
+### Method 1: Docker Execution (Easiest)
+
+This method runs the full pipeline without any local installation.
+
+#### 1. Pull the Image
+```bash
+docker pull crpi-c4pny7ppnuyy2551.cn-hangzhou.personal.cr.aliyuncs.com/ldqq/ldqq001:v3
+```
+
+#### 2. Run with Built-in Test Data
+To check if everything works using the included sample data:
+```bash
+docker run --rm --gpus all \
+  -v $(pwd)/final_check:/app/results \
+  crpi-c4pny7ppnuyy2551.cn-hangzhou.personal.cr.aliyuncs.com/ldqq/ldqq001:v3
+```
+
+#### 3. Run with Your Own Data (Custom Input)
+To use your own datasets, **mount your data folder** into the container (e.g., map local path to `/data`) and specify the paths using the standard omics flags.
+
+**Example Command:**
+Assuming your data files (`drug.csv`, `gene.csv`, etc.) are located in `/home/user/my_omics_data/`:
+
+```bash
+docker run --rm --gpus all \
+  -v $(pwd)/my_results:/app/results \
+  -v /home/user/my_omics_data:/data \
+  crpi-c4pny7ppnuyy2551.cn-hangzhou.personal.cr.aliyuncs.com/ldqq/ldqq001:v3 \
+  --drug_smiles "/data/drug.csv" \
+  --gene_exp_file "/data/gene.csv" \
+  --mutation_file "/data/mutation.csv" \
+  --cnv_file "/data/cnv.csv" \
+  --gsva_file "/data/gsva.csv"
+```
+
+### Method 2: Smart Ensemble Workflow (For Large-Scale Data)
+
+Use this method if you have a large number of drugs/cells (e.g., >1000 pairs). The system automatically calculates available RAM/CPU and splits input data into "chunks" to run in parallel.
+
+1.  **Configure Paths:** Edit `smart_ensemble.sh` to point to your input files.
+2.  **Run:**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-name>
+    chmod +x smart_ensemble.sh
+    ./smart_ensemble.sh
     ```
 
-2.  **Make the script executable:**
-    ```bash
-    chmod +x run_ensemble.sh
-    ```
+### Method 3: Local Standard Execution
 
-### Method 1: Full Ensemble Workflow (Recommended)
+For standard-sized datasets on a machine with configured Conda/Nextflow.
 
-This is the simplest way to get a complete result. The `run_ensemble.sh` script runs all model workflows in a specific, optimized order, cleaning up intermediate files between steps. 
+#### 1. Setup
+```bash
+chmod +x run_ensemble.sh
+```
 
-**Note**: This script now uses a fixed `./results` directory for all outputs, unlike previous versions which created timestamped folders.
+#### 2. Run with Built-in Test Data
+```bash
+./run_ensemble.sh
+```
 
--   **Run with the built-in test data:**
-    ```bash
-    ./run_ensemble.sh
-    ```
+#### 3. Run with Your Own Data (Custom Input)
+Pass the absolute paths to your local files using the standard flags.
 
--   **Run with your own data and custom GPU allocation:**
-    You can pass any Nextflow parameter directly to the script. These will be automatically forwarded to all underlying pipeline runs.
-    ```bash
-    ./run_ensemble.sh --gene_exp_file /path/to/exp.csv \
-                      --mutation_file /path/to/mut.csv \
-                      --gpu_part1 0 --gpu_dipk_graphdrp 1
-    ```
-    All results will be stored in the `./results/` directory.
-
-### Method 2: Modular Execution (Advanced)
-
-If you only want to run a specific model group or the ensemble analysis, you can call `main.nf` directly using profiles defined in `nextflow.config`. Results will be saved to the directory specified by `--output_dir` (default: `./results`).
-
--   **Run the `part1` model group:**
-    ```bash
-    nextflow run main.nf -profile part1 --gpu_part1 0
-    ```
-
--   **Run the `DIPK-GraphDRP` workflow:**
-    ```bash
-    nextflow run main.nf -profile dipk_graphdrp --gpu_dipk_graphdrp 1
-    ```
-
--   **Run the Ensemble Analysis on existing results:**
-    This should be run after one or more model workflows have completed and their `*_predictions.csv` files are present in the output directory.
-    ```bash
-    nextflow run main.nf -profile voter --output_dir ./results
-    ```
+```bash
+./run_ensemble.sh \
+  --drug_smiles "/abs/path/to/drug.csv" \
+  --gene_exp_file "/abs/path/to/gene.csv" \
+  --mutation_file "/abs/path/to/mutation.csv" \
+  --cnv_file "/abs/path/to/cnv.csv" \
+  --gsva_file "/abs/path/to/gsva.csv"
+```
 
 ## Workflow Parameters
 
-Parameters can be specified on the command line (e.g., `--gpu_part1 1`).
-
-### Workflow Control
-
-| Parameter | Description | Default |
-| :--- | :--- | :--- |
-| `entry` | Specifies the workflow to run. Used internally by profiles. Options: `part1`, `dipk_graphdrp`, `voter`. | `''` |
-| `output_dir` | The root directory where all prediction results will be saved. | `${projectDir}/results` |
+These parameters apply to both Local (`run_ensemble.sh`) and Docker modes.
 
 ### GPU Allocation
+You can control which GPU handles which model group in `main.nf`:
 
-| Parameter | Description | Default |
+| Parameter | Default GPU | Description |
 | :--- | :--- | :--- |
-| `gpu_part1` | GPU ID for the `part1` model group (BANDRP, DeepTTC, etc.). | `0` |
-| `gpu_dipk_graphdrp` | GPU ID for the `DIPK` & `GraphDRP` model group. | `0` |
+| `gpu_map.GPDRP` | 0 | GPDRP Model |
+| `gpu_map.BANDRP` | 0 | BANDRP Model |
+| `gpu_map.DeepTTC` | 0 | DeepTTC Model |
+| `gpu_map.paccmann`| 0 | PaccMann Model |
+| `gpu_map.Precily` | 0 | Precily Model |
+| `gpu_map.DIPK` | 0 | DIPK Model |
+| `gpu_map.GraphDRP`| 0 | GraphDRP Model |
 
-### Core Input Files
+### Input Files (Standardized Omics Names)
+Override these flags to use your own data.
 
-| Parameter | Description | Default (points to test data) |
+| Flag | Description | Expected Format |
 | :--- | :--- | :--- |
-| `drug_smiles` | CSV file with drug SMILES strings. | `${projectDir}/test/drug_sample.csv` |
-| `gene_exp_file` | Gene expression data file. | `${projectDir}/test/gene_sample.csv` |
-| `mutation_file` | Gene mutation data file. | `${projectDir}/test/mu_sample.csv` |
-| `cnv_file` | Copy Number Variation (CNV) data file. | `${projectDir}/test/cnv_sample.csv` |
-| `gsva_file` | GSVA analysis results file. | `${projectDir}/test/gsva_sample.csv` |
-| `cell_file_graphdrp`| Cell line features file for GraphDRP. | `${projectDir}/test/mu_sample.csv` |
+| `--drug_smiles` | Drug Data | CSV: `drug_id,smiles` |
+| `--gene_exp_file` | Gene Expression | CSV: Rows=Samples, Cols=Genes |
+| `--mutation_file` | Mutation Data | CSV: Binary or frequency matrix |
+| `--cnv_file` | Copy Number Variation | CSV: Copy number values |
+| `--gsva_file` | GSVA Pathway Scores | CSV: Rows=Samples, Cols=Pathways |
+| `--microrna_file` | MicroRNA Data | CSV: miRNA expression (Optional) |
+| `--cell_file_graphdrp` | Cell Features | CSV: (Specific to GraphDRP, usually same as mutation) |
 
-### Ensemble Analysis Parameters
-
-These parameters are used by the final `voter` workflow which runs the `run_ensemble.py` script.
-
-*Note: The previous method of enabling/disabling models with flags (e.g., `--BANDRP 1`) has been deprecated. The new ensemble script automatically discovers prediction files in the output directory.*
-
-| Parameter | Description | Default |
-| :--- | :--- | :--- |
-| `model_pkl` | Path to the trained RandomForest model (`.pkl`) used by the ensemble script in `mode 0`. | `${projectDir}/best_model_RandomForest_rmse.pkl` |
-| `weight_file` | Path to the `weight.csv` file defining model weights for the ensemble script in `mode 1`. | `${projectDir}/weight.csv` |
-
-## Project Structure
+---
+*Developed for the DRIVE Project (v3).*
+```
