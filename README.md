@@ -168,7 +168,3 @@ Override these flags to use your own data.
 | `--gsva_file` | GSVA Pathway Scores | CSV: Rows=Samples, Cols=Pathways |
 | `--microrna_file` | MicroRNA Data | CSV: miRNA expression (Optional) |
 | `--cell_file_graphdrp` | Cell Features | CSV: (Specific to GraphDRP, usually same as mutation) |
-
----
-*Developed for the DRIVE Project (v3).*
-```
