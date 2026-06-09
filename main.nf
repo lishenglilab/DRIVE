@@ -3,9 +3,7 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    Main Routing Workflow (V18.0 - Granular GPU Control)
-    - Implements individual GPU allocation for each model via `params.gpu_map`.
-    - The entire map is passed to subworkflows for fine-grained control.
+    Main Routing Workflow
 ========================================================================================
 */
 
@@ -17,7 +15,6 @@ nextflow.enable.dsl=2
 params.entry = ''
 params.output_dir = "${projectDir}/results"
 
-// --- 【【【 精细化 GPU 分配控制 】】】 ---
 params.gpu_map = [
     // Part 1 Models
     GPDRP:    0,
