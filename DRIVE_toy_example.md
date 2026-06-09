@@ -10,6 +10,7 @@ The toy dataset is designed for quick workflow validation. It allows users to ch
 
 - the required input files are correctly formatted;
 - sample and drug identifiers can be recognized by the workflow;
+- molecular feature matrices can be matched across modalities;
 - individual model prediction modules can be launched;
 - the DRIVE ensemble module can integrate model-level outputs;
 - the expected output directory and final prediction file are generated.
@@ -18,7 +19,7 @@ Because the dataset is intentionally small, the output should only be used to co
 
 ## Toy dataset overview
 
-The toy data are located in the `test/` directory of the repository. They include a small drug file and several matched omics matrices.
+The toy data are located in the `test/` directory of the repository. They include a small drug file and several matched molecular feature matrices.
 
 ```text
 test/
@@ -30,18 +31,18 @@ test/
 └── mi_sample.csv
 ```
 
-Each file represents one input modality used by DRIVE. The drug file provides compound identifiers and SMILES strings, while the omics files provide molecular features for the same set of samples or cell lines.
+In DRIVE, the input files include drug structure information and sample-level molecular features. The molecular features may be raw omics profiles, such as gene expression, mutation, copy number variation, or microRNA expression, as well as derived pathway-level features, such as GSVA, ssGSEA, or GSEA-derived scores.
 
 ## Input file requirements
 
-| File name | Required | Description | Expected format |
-|---|---:|---|---|
-| `drug_sample.csv` | Yes | Drug identifiers and SMILES strings | CSV with columns `drug_id` and `smiles` |
-| `gene_sample.csv` | Yes | Gene expression matrix | Rows represent samples; columns represent genes |
-| `mu_sample.csv` | Yes | Mutation matrix | Rows represent samples; columns represent genes |
-| `cnv_sample.csv` | Yes | Copy number variation matrix | Rows represent samples; columns represent genes |
-| `gsva_sample.csv` | Yes | GSVA pathway score matrix | Rows represent samples; columns represent pathways |
-| `mi_sample.csv` | No | MicroRNA expression matrix | Rows represent samples; columns represent miRNAs |
+| File name | Required | Data type | Description | Expected format |
+|---|---:|---|---|---|
+| `drug_sample.csv` | Yes | Drug structure | Drug identifiers and SMILES strings | CSV with columns `drug_id` and `smiles` |
+| `gene_sample.csv` | Yes | Gene expression | Sample-level gene expression features | Rows represent samples; columns represent genes |
+| `mu_sample.csv` | Yes | Mutation | Sample-level mutation features | Rows represent samples; columns represent genes |
+| `cnv_sample.csv` | Yes | Copy number variation | Sample-level CNV features | Rows represent samples; columns represent genes |
+| `gsva_sample.csv` | Yes | Pathway activity | Pathway-level enrichment or activity scores, such as GSVA, ssGSEA, or GSEA-derived features | Rows represent samples; columns represent pathways or gene sets |
+| `mi_sample.csv` | No | MicroRNA expression | Sample-level miRNA expression features | Rows represent samples; columns represent miRNAs |
 
 ## Data format notes
 
@@ -64,32 +65,54 @@ Drug_002,CN1C=NC2=C1C(=O)N(C)C(=O)N2C
 
 The `drug_id` values are used to label prediction outputs, while the `smiles` column is used by models that require molecular structure information.
 
-### Omics matrices
+### Sample-level molecular feature matrices
 
-The omics files should be comma-separated matrices. In each matrix:
-
-- rows represent samples or cell lines;
-- columns represent molecular features;
-- row identifiers should be consistent across omics files;
-- feature names should be placed in the header row.
-
-Example structure:
+Most molecular input files in DRIVE follow the same sample-by-feature structure. This includes `gene_sample.csv`, `mu_sample.csv`, `cnv_sample.csv`, and `mi_sample.csv`.
 
 ```csv
-sample_id,GENE1,GENE2,GENE3
+sample_id,FEATURE1,FEATURE2,FEATURE3
 Sample_001,0.23,1.45,0.00
 Sample_002,0.11,0.98,1.20
 ```
 
-For mutation data, values are typically binary or mutation-frequency-like features. For CNV data, values represent copy number variation features. For GSVA data, columns represent pathway-level scores rather than individual genes.
+In these files:
+
+- rows represent samples or cell lines;
+- columns represent molecular features;
+- the first column should contain sample identifiers;
+- feature names should be placed in the header row;
+- sample identifiers should be consistent across all required molecular feature files.
+
+The exact meaning of the feature values depends on the data type. For example, gene expression files contain expression values, mutation files may contain binary mutation indicators or preprocessed mutation features, CNV files contain copy number variation features, and microRNA files contain miRNA expression values.
+
+### Pathway-level feature matrix
+
+The pathway-level input file is represented by `gsva_sample.csv` in the toy example. In practice, this file can contain pathway activity or enrichment scores generated by GSVA, ssGSEA, GSEA-derived preprocessing, or related pathway-scoring methods.
+
+```csv
+sample_id,HALLMARK_APOPTOSIS,HALLMARK_GLYCOLYSIS,KEGG_CELL_CYCLE
+Sample_001,0.42,-0.18,0.77
+Sample_002,0.15,0.31,-0.22
+```
+
+Rows should represent samples or cell lines, and columns should represent pathways, gene sets, or curated signatures. The pathway-scoring method should be kept consistent within a single run.
+
+### Other model-specific feature files
+
+Some component models may require additional or model-specific feature representations. When custom feature files are used, they should follow the same general convention:
+
+- rows represent samples, cell lines, drugs, or drug-sample pairs depending on the model requirement;
+- columns represent features;
+- identifiers should be consistent with the corresponding drug or sample IDs used elsewhere in the workflow;
+- missing values should be handled before running DRIVE unless the relevant model explicitly supports them.
 
 ## Identifier consistency
 
-All required omics matrices should use consistent sample identifiers. For example, if `Sample_001` appears in `gene_sample.csv`, the same identifier should also appear in `mu_sample.csv`, `cnv_sample.csv`, and `gsva_sample.csv`.
+All required sample-level molecular feature files should use consistent sample identifiers. For example, if `Sample_001` appears in `gene_sample.csv`, the same identifier should also appear in `mu_sample.csv`, `cnv_sample.csv`, and `gsva_sample.csv`.
 
-Inconsistent sample identifiers are one of the most common causes of failed or incomplete runs. Before running DRIVE on custom data, users are encouraged to check that the sample IDs overlap across all required omics files.
+Inconsistent sample identifiers are one of the most common causes of failed or incomplete runs. Before running DRIVE on custom data, users are encouraged to check that the sample IDs overlap across all required molecular feature files.
 
-The microRNA file is optional. If microRNA data are unavailable, the workflow can be run without `mi_sample.csv`, provided that the corresponding parameter is omitted or handled according to the workflow settings.
+The drug identifiers in `drug_sample.csv` should also be stable and unique, because they are used to label model-level and ensemble-level prediction outputs.
 
 ## Run the toy example with Nextflow
 
@@ -160,7 +183,8 @@ Users should first inspect `results/logs/` if the workflow stops unexpectedly.
 
 1. The toy dataset is only intended for workflow testing.
 2. The small input size may not reflect the runtime, memory usage, or predictive performance of full-scale datasets.
-3. All omics matrices should use consistent sample identifiers.
+3. All sample-level molecular feature files should use consistent sample identifiers.
 4. The drug input file must contain valid SMILES strings for all compounds.
-5. The microRNA input file is optional and may be omitted if not available.
-6. For large-scale datasets, users may alternatively run `smart_ensemble.sh`, which enables automatic chunking and resource-aware scheduling.
+5. Pathway-level inputs may be generated by GSVA, ssGSEA, GSEA-derived scoring, or related pathway-scoring methods, but the scoring strategy should be consistent within a single run.
+6. The microRNA input file is optional and may be omitted if not available.
+7. For large-scale datasets, users may alternatively run `smart_ensemble.sh`, which enables automatic chunking and resource-aware scheduling.
