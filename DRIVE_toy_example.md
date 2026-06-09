@@ -13,7 +13,7 @@ The toy dataset is designed for quick workflow validation. It allows users to ch
 - molecular feature matrices can be matched across modalities;
 - individual model prediction modules can be launched;
 - the DRIVE ensemble module can integrate model-level outputs;
-- the expected output directory and final prediction file are generated.
+- the expected output directory and final prediction file is generated.
 
 Because the dataset is intentionally small, the output should only be used to confirm successful execution. It should not be interpreted as a formal drug-response prediction result.
 
@@ -27,11 +27,10 @@ test/
 ├── gene_sample.csv
 ├── mu_sample.csv
 ├── cnv_sample.csv
-├── gsva_sample.csv
-└── mi_sample.csv
+└── gsva_sample.csv
 ```
 
-In DRIVE, the input files include drug structure information and sample-level molecular features. The molecular features may be raw omics profiles, such as gene expression, mutation, copy number variation, or microRNA expression, as well as derived pathway-level features, such as GSVA, ssGSEA, or GSEA-derived scores.
+In DRIVE, the input files include drug structure information and sample-level molecular features. The molecular features may be raw omics profiles, such as gene expression, mutation, and copy number variation, as well as derived pathway-level features, such as GSVA, ssGSEA, or GSEA-derived scores.
 
 ## Input file requirements
 
@@ -42,7 +41,6 @@ In DRIVE, the input files include drug structure information and sample-level mo
 | `mu_sample.csv` | Yes | Mutation | Sample-level mutation features | Rows represent samples; columns represent genes |
 | `cnv_sample.csv` | Yes | Copy number variation | Sample-level CNV features | Rows represent samples; columns represent genes |
 | `gsva_sample.csv` | Yes | Pathway activity | Pathway-level enrichment or activity scores, such as GSVA, ssGSEA, or GSEA-derived features | Rows represent samples; columns represent pathways or gene sets |
-| `mi_sample.csv` | No | MicroRNA expression | Sample-level miRNA expression features | Rows represent samples; columns represent miRNAs |
 
 ## Data format notes
 
@@ -67,7 +65,7 @@ The `drug_id` values are used to label prediction outputs, while the `smiles` co
 
 ### Sample-level molecular feature matrices
 
-Most molecular input files in DRIVE follow the same sample-by-feature structure. This includes `gene_sample.csv`, `mu_sample.csv`, `cnv_sample.csv`, and `mi_sample.csv`.
+Most molecular input files in DRIVE follow the same sample-by-feature structure. This includes `gene_sample.csv`, `mu_sample.csv`, and `cnv_sample.csv`.
 
 ```csv
 sample_id,FEATURE1,FEATURE2,FEATURE3
@@ -83,7 +81,7 @@ In these files:
 - feature names should be placed in the header row;
 - sample identifiers should be consistent across all required molecular feature files.
 
-The exact meaning of the feature values depends on the data type. For example, gene expression files contain expression values, mutation files may contain binary mutation indicators or preprocessed mutation features, CNV files contain copy number variation features, and microRNA files contain miRNA expression values.
+The exact meaning of the feature values depends on the data type. For example, gene expression files contain expression values, mutation files may contain binary mutation indicators or preprocessed mutation features, and CNV files contain copy number variation features.
 
 ### Pathway-level feature matrix
 
@@ -97,9 +95,11 @@ Sample_002,0.15,0.31,-0.22
 
 Rows should represent samples or cell lines, and columns should represent pathways, gene sets, or curated signatures. The pathway-scoring method should be kept consistent within a single run.
 
-### Other model-specific feature files
+### Other optional or model-specific feature files
 
-Some component models may require additional or model-specific feature representations. When custom feature files are used, they should follow the same general convention:
+Some component models may support additional feature representations. These files should not be required for the minimal toy run unless the corresponding model configuration explicitly depends on them.
+
+When optional or custom feature files are used, they should follow the same general convention:
 
 - rows represent samples, cell lines, drugs, or drug-sample pairs depending on the model requirement;
 - columns represent features;
@@ -125,7 +125,6 @@ nextflow run main.nf \
   --mutation_file "test/mu_sample.csv" \
   --cnv_file "test/cnv_sample.csv" \
   --gsva_file "test/gsva_sample.csv" \
-  --microrna_file "test/mi_sample.csv" \
   -resume
 ```
 
@@ -142,8 +141,7 @@ docker run --rm --gpus all \
   --gene_exp_file "/data/gene_sample.csv" \
   --mutation_file "/data/mu_sample.csv" \
   --cnv_file "/data/cnv_sample.csv" \
-  --gsva_file "/data/gsva_sample.csv" \
-  --microrna_file "/data/mi_sample.csv"
+  --gsva_file "/data/gsva_sample.csv"
 ```
 
 ## Expected outputs
@@ -186,5 +184,5 @@ Users should first inspect `results/logs/` if the workflow stops unexpectedly.
 3. All sample-level molecular feature files should use consistent sample identifiers.
 4. The drug input file must contain valid SMILES strings for all compounds.
 5. Pathway-level inputs may be generated by GSVA, ssGSEA, GSEA-derived scoring, or related pathway-scoring methods, but the scoring strategy should be consistent within a single run.
-6. The microRNA input file is optional and may be omitted if not available.
+6. Optional feature files should be added only when the selected model configuration requires them.
 7. For large-scale datasets, users may alternatively run `smart_ensemble.sh`, which enables automatic chunking and resource-aware scheduling.
