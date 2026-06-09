@@ -1,4 +1,4 @@
-#Minimal toy example for running the DRIVE workflow
+# Minimal toy example for running the DRIVE workflow
 
 This supplementary page provides a minimal toy example for running the DRIVE workflow using the test files distributed with the repository. It lists the required input files, example commands for local and Docker-based runs, and the expected output files.
 
