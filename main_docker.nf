@@ -3,23 +3,19 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    DRP Docker Unified Workflow (FINAL ABSOLUTE VERSION v7.0)
-    - Fixes: voter.py unrecognized arguments (--input_dir, --output_dir)
-    - Fixes: Path resolution using toRealPath() for all files
-    - Fixes: Python environment naming consistency
-    - Includes: 100% Full Bash logic for PREPARE_DRUG_LIST
+    DRP Docker Unified Workflow 
 ========================================================================================
 */
 
 // ========================================================================================
-//                             1. 全局参数定义
+//                             1. Global parameter definition
 // ========================================================================================
 
 params.entry        = 'part1' 
 params.output_dir   = "/app/results"
 params.model_pkl    = "/app/best_model_RandomForest_rmse.pkl"
 
-// --- GPU 分配控制 ---
+// --- GPU ---
 params.gpu_map = [
     GPDRP:    0,
     BANDRP:   0,
@@ -30,14 +26,14 @@ params.gpu_map = [
     GraphDRP: 0
 ]
 
-// --- 药物准备核心参数 ---
+// --- Drug ---
 params.drug_list_option   = 0
 params.drug_types         = 'ALL'
 params.test_mode_limit    = 0
 params.predict_chemo_file = "/app/test/predict_chemo.csv"
 params.predict_np_file    = "/app/test/predict_np.csv"
 
-// --- 输入数据文件路径 (容器内绝对路径) ---
+// --- Input ---
 params.drug_smiles        = "/app/test/drug_sample.csv"
 params.mutation_file      = "/app/test/mu_sample.csv"
 params.gene_exp_file      = "/app/test/gene_sample.csv"
@@ -45,7 +41,7 @@ params.cnv_file           = "/app/test/cnv_sample.csv"
 params.gsva_file          = "/app/test/gsva_sample.csv"
 params.cell_file_graphdrp = "/app/test/mu_sample.csv"
 
-// --- 容器内预装环境路径定义 ---
+// --- env ---
 def PY37_PYTHON = "/opt/conda/envs/part1_env/bin/python"
 def PY37_LIB    = "/opt/conda/envs/part1_env/lib"
 def PY38_PYTHON = "/opt/conda/envs/dipk_graphdrp_env/bin/python"
@@ -62,7 +58,7 @@ GPU Mapping      : ${params.gpu_map}
 """.stripIndent()
 
 // ====================================================================================
-// 2. 药物列表准备 (保留完整原版复杂的 Bash 逻辑)
+// 2. drug list
 // ====================================================================================
 process PREPARE_DRUG_LIST {
     tag "Option ${drug_option}"
@@ -106,7 +102,7 @@ process PREPARE_DRUG_LIST {
 }
 
 // ====================================================================================
-// 3. Part 1 模型 (Python 3.7)
+// 3. Part 1 (Python 3.7)
 // ====================================================================================
 process run_BANDRP {
     tag "BANDRP"; conda "/opt/conda/envs/part1_env"
@@ -220,7 +216,7 @@ process run_DIPK {
 }
 
 // ====================================================================================
-// 5. Ensemble Voter (修正：移除不支持的参数，进入结果目录运行)
+// 5. Ensemble Voter 
 // ====================================================================================
 process run_VOTER {
     tag "Voter"
@@ -233,7 +229,7 @@ process run_VOTER {
 }
 
 // ====================================================================================
-// 6. 工作流控制器
+// 6.workflow
 // ====================================================================================
 workflow {
     def source_drug_file = (params.drug_list_option == 3) ? file("/app/test/drug_sample.csv") : file(params.drug_smiles)
