@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# --- [1. 核心路径配置] ---
 BASE_DIR=$(pwd)
 DRUG_SMILES="${BASE_DIR}/test/drug_sample.csv"
 GENE_EXP="${BASE_DIR}/test/gene_sample.csv"
@@ -14,7 +13,6 @@ CELL_GRAPHDRP="${BASE_DIR}/test/mu_sample.csv"
 FINAL_OUTPUT_DIR="${BASE_DIR}/results_final"
 SMART_WS="${BASE_DIR}/smart_workspace"
 
-# --- [2. 辅助函数] ---
 format_time() {
     local T=$1
     local H=$((T/3600))
@@ -31,7 +29,6 @@ cleanup_nextflow() {
     rm -rf .nextflow .nextflow.log*
 }
 
-# --- [3. 并行执行器 (带时间预估)] ---
 run_parallel_stage() {
     local entry=$1
     local total=$2
@@ -57,7 +54,6 @@ run_parallel_stage() {
 
         echo "      Launching Chunk $CHUNK_ID on GPU $TARGET_GPU_ID..."
         
-        # 移除了 -quiet 确保兼容性
         nextflow run main.nf \
             --entry "$entry" \
             --drug_smiles "$(readlink -f ${SMART_WS}/plan/chunk_${CHUNK_ID}.csv)" \
@@ -97,21 +93,19 @@ run_parallel_stage() {
 }
 
 # ===================================================
-#                    工作流开始
+#                    Workflow
 # ===================================================
 GLOBAL_START=$(date +%s)
 echo "==================================================="
 echo "  Smart Multi-Omics Ensemble Workflow V2.3"
 echo "==================================================="
 
-# 1. 初始化
 cleanup_nextflow
 rm -rf "$SMART_WS" "$FINAL_OUTPUT_DIR"
 mkdir -p "$FINAL_OUTPUT_DIR"
 
-# 2. 运行规划脚本
 echo "--- [0/3] Planning & Data Splitting ---"
-# 移除了 -quiet
+
 nextflow run smart.nf --drug_file "$DRUG_SMILES" --cell_file "$GSVA" --output_dir "$SMART_WS"
 
 if [ ! -f "${SMART_WS}/plan/config.sh" ]; then
@@ -120,7 +114,6 @@ if [ ! -f "${SMART_WS}/plan/config.sh" ]; then
 fi
 source "${SMART_WS}/plan/config.sh"
 
-# 3. 运行各个阶段
 stage1_start=$(date +%s)
 run_parallel_stage "dipk_graphdrp" "$TOTAL_CHUNKS" "$MAX_PARALLEL" "$GPU_COUNT"
 stage1_end=$(date +%s)
@@ -129,7 +122,6 @@ stage2_start=$(date +%s)
 run_parallel_stage "part1" "$TOTAL_CHUNKS" "$MAX_PARALLEL" "$GPU_COUNT"
 stage2_end=$(date +%s)
 
-# 4. 碎片合并
 echo "--- [POST] Consolidating Predicted Fragments ---"
 python3 -c "
 import pandas as pd
@@ -153,12 +145,11 @@ else:
             combined_df.to_csv(os.path.join(final_path, name), index=False)
 "
 
-# 5. 最后集成
 echo "--- [3/3] Ensemble Stage (Voter) ---"
-# 移除了 -quiet
+
 nextflow run main.nf --entry voter --output_dir "$FINAL_OUTPUT_DIR"
 
-# 6. 报告汇总
+
 GLOBAL_END=$(date +%s)
 echo "==================================================="
 echo "  Execution Summary"
