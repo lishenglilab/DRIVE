@@ -3,9 +3,7 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    SUBWORKFLOW MODULE (Part 1 Models) - V10.0 (Final Stable Version)
-    - Receives a `gpu_map` and distributes individual GPU IDs.
-    - Uses the stable, original path logic (`output_dir`) to avoid `task.workDir` issues.
+    SUBWORKFLOW MODULE (Part 1 Models)
 ========================================================================================
 */
 
@@ -41,7 +39,6 @@ workflow run_part1_workflow {
         run_Precily(gpu_map.Precily, output_dir, input_params, env_ready_signal)
 }
 
-// 【【【 关键修复: 所有 process 恢复到老的、稳定的路径逻辑 】】】
 
 process run_BANDRP {
     tag "BANDRP_predict"; conda "${projectDir}/environments/part1_env.yml"
