@@ -23,7 +23,7 @@ The pipeline aggregates predictions from individual models using a `Voter` modul
 
 ## Features
 
--   **Docker Support (v3)**: A fully encapsulated container image containing all model environments, eliminating local dependency hell.
+-   **Docker Support**: A fully encapsulated container image containing all model environments, eliminating local dependency hell.
 -   **Smart Resource Planner**: The `smart_ensemble.sh` system automatically detects hardware (RAM/GPU). It chunks large datasets (e.g., 50x50 matrices for CPU-only modes or dynamic sizing for GPUs) to prevent memory overflows.
 -   **Granular GPU Control**: Assign specific models to specific GPU IDs via `main.nf`.
 -   **Automated Ensemble**: Merges predictions via a Random Forest-based voter or weighted averaging.
