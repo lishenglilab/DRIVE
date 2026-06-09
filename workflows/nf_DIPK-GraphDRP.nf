@@ -3,9 +3,7 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    DIPK & GraphDRP SUB-WORKFLOW (V11.0 - Final Stable Version)
-    - Receives a `gpu_map` and distributes individual GPU IDs.
-    - Uses the stable, original path logic (`output_dir`) to avoid `task.workDir` issues.
+    DIPK & GraphDRP SUB-WORKFLOW
 ========================================================================================
 */
 
@@ -43,7 +41,6 @@ workflow run_dipk_graphdrp_workflow {
         run_GraphDRP_internal(gpu_map.GraphDRP, output_dir, models_ch.map{it[0]}, models_ch.map{it[1]}, input_params, env_ready_signal)
 }
 
-// 【【【 关键修复: 所有 process 恢复到老的、稳定的路径逻辑 】】】
 
 process run_GraphDRP_internal {
     tag "GraphDRP predict [${model_type}]"; conda "${projectDir}/environments/dipk_graphdrp_env.yml"
