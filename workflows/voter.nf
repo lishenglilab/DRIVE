@@ -3,10 +3,7 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    Ensemble Analysis Sub-workflow (V7.0 - Aligned with updated voter.py)
-    - Removed dependency on weight_csv_file.
-    - Split analysis into two separate processes for Mode 0 and Mode 1 for clarity.
-    - Both processes use the RandomForest model predictions as their basis.
+    Ensemble Analysis Sub-workflow
 ========================================================================================
 */
 
@@ -70,8 +67,6 @@ process generate_top_k_reports {
     path model_pkl
     path voter_script
 
-    // 使用 params 来控制 top_k 的值，增加灵活性
-    // 可以在 nextflow.config 或命令行 (--top_k 10) 中修改
     params.top_k = 5
 
     script:
@@ -82,7 +77,7 @@ process generate_top_k_reports {
     python ${voter_script} --mode 1 --model_pkl ${model_pkl} --top_k ${params.top_k}
 
     echo "--- Mode 1 finished. Moving results to main output directory. ---"
-    # 移动整个 reports 文件夹
+    
     mv ./ensemble_outputs/cell_line_reports ${output_dir}/
     """
 }
